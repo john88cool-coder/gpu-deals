@@ -17,3 +17,8 @@ data/full.sqlite3
 src/gpudeals/data/*.sqlite3
 *.sqlite3
 !data/prices.sqlite3
+.gh_token
+jobs.json
+crawl_log.txt
+logs_resp.txt
+ci_db.sqlite3

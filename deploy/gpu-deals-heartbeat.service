@@ -1,0 +1,14 @@
+[Unit]
+Description=Ежедневная строка о живости парсеров
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=gpudeals
+WorkingDirectory=/opt/gpu-deals
+EnvironmentFile=/opt/gpu-deals/.env
+Environment=GPUDEALS_DB=/var/lib/gpu-deals/prices.sqlite3
+ExecStart=/opt/gpu-deals/.venv/bin/gpu-deals heartbeat
+StandardOutput=journal
+StandardError=journal

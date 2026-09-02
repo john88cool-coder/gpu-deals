@@ -1,0 +1,15 @@
+[Unit]
+Description=Полный обход магазинов видеокарт
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=gpudeals
+WorkingDirectory=/opt/gpu-deals
+EnvironmentFile=/opt/gpu-deals/.env
+Environment=GPUDEALS_DB=/var/lib/gpu-deals/prices.sqlite3
+ExecStart=/opt/gpu-deals/.venv/bin/gpu-deals crawl
+# Один упавший магазин не должен ронять таймер: код возврата всегда 0.
+StandardOutput=journal
+StandardError=journal

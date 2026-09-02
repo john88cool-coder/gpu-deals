@@ -1,0 +1,12 @@
+[Unit]
+Description=Полный обход каждые 2 часа
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=2h
+# Разброс, чтобы запросы не приходили ровно в круглый час.
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,26 @@
+[project]
+name = "gpu-deals"
+version = "0.1.0"
+description = "Мониторинг цен на видеокарты в магазинах Казахстана с оценкой выгодности"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "selectolax>=0.3.21",
+]
+
+[project.optional-dependencies]
+dns = ["playwright>=1.44"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+gpu-deals = "gpudeals.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gpudeals"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

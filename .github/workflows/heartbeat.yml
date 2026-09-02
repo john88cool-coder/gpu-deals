@@ -1,0 +1,35 @@
+name: heartbeat
+# Ежедневная строка о живости: 09:00 по Алматы = 03:00 UTC (UTC+5 без перевода часов).
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+
+      - name: Кэш браузера Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Зависимости
+        run: |
+          uv sync --extra dns
+          uv run playwright install --with-deps chromium
+
+      - name: Сводка
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GPUDEALS_DB: ${{ github.workspace }}/data/prices.sqlite3
+        run: uv run gpu-deals heartbeat

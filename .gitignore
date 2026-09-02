@@ -1,0 +1,19 @@
+# Служебное
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+
+# Локальные временные базы — рабочая prices.sqlite3 коммитится намеренно:
+# GitHub Actions хранит в ней историю цен между запусками.
+data/*.sqlite3-journal
+data/*.sqlite3-bak
+data/live*.sqlite3
+data/test*.sqlite3
+data/w.sqlite3
+data/f.sqlite3
+data/full.sqlite3
+src/gpudeals/data/*.sqlite3
+*.sqlite3
+!data/prices.sqlite3

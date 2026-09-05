@@ -22,6 +22,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .paging import new_offers
 
 SHOP = "forcecom"
 BASE = "https://forcecom.kz"
@@ -98,7 +99,12 @@ def total_pages(html: str) -> int:
 async def fetch(client) -> list[Offer]:
     response = await client.get(CATALOG_URL)
     response.raise_for_status()
-    offers = parse(response.text)
+
+    # Магазин переставляет товары между страницами между запросами: обход
+    # страниц 1-10 подряд дал 200 позиций и 194 уникальных названия. Без учёта
+    # уже виденных identity эти шесть попали бы в историю дважды за обход.
+    seen: set[str] = set()
+    offers = new_offers(parse(response.text), seen)
 
     pages = min(total_pages(response.text), _MAX_PAGES)
     for page in range(2, pages + 1):
@@ -109,5 +115,5 @@ async def fetch(client) -> list[Offer]:
         except Exception as exc:  # noqa: BLE001 — частичный результат лучше пустого
             log.warning("forcecom: страница %s не загрузилась: %s", page, exc)
             break
-        offers.extend(parse(extra.text))
+        offers.extend(new_offers(parse(extra.text), seen))
     return offers

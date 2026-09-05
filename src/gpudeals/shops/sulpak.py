@@ -21,6 +21,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .paging import new_offers
 
 SHOP = "sulpak"
 BASE = "https://www.sulpak.kz"
@@ -79,18 +80,31 @@ def parse(html: str) -> list[Offer]:
     return offers
 
 
-def has_next_page(html: str) -> bool:
-    """Есть ли следующая страница: в каталоге ссылка «page=N+1»."""
-    return f"page=" in html and HTMLParser(html).css_first("a[href*=page]") is not None
+def total_pages(html: str) -> int:
+    """Число страниц каталога: магазин пишет его в `data-pagesCount` пагинации.
+
+    Нужно потому, что номер за границей каталога не даёт пустого ответа:
+    `?page=7` при пяти страницах возвращает последнюю доступную (проверено —
+    в ответе стоит `data-currentPage="3"`), и обход «пока страницы отдают
+    позиции» не останавливался бы никогда.
+    """
+    node = HTMLParser(html).css_first("[data-pagesCount]")
+    if not node:
+        return 1
+    # selectolax приводит имена атрибутов к нижнему регистру.
+    raw = node.attributes.get("data-pagescount") or ""
+    return int(raw) if raw.isdigit() and int(raw) > 0 else 1
 
 
 async def fetch(client) -> list[Offer]:
     response = await client.get(CATALOG_URL)
     response.raise_for_status()
-    offers = parse(response.text)
 
-    # Число страниц заранее неизвестно: идём, пока страницы отдают позиции.
-    for page in range(2, _MAX_PAGES + 1):
+    seen: set[str] = set()
+    offers = new_offers(parse(response.text), seen)
+
+    pages = min(total_pages(response.text), _MAX_PAGES)
+    for page in range(2, pages + 1):
         await asyncio.sleep(_PAGE_DELAY)
         try:
             extra = await client.get(CATALOG_URL, params={"page": page})
@@ -98,7 +112,9 @@ async def fetch(client) -> list[Offer]:
         except Exception as exc:  # noqa: BLE001 — частичный результат лучше пустого
             log.warning("sulpak: страница %s не загрузилась: %s", page, exc)
             break
-        found = parse(extra.text)
+        found = new_offers(parse(extra.text), seen)
+        # Страница без новых позиций означает, что каталог кончился и магазин
+        # повторяет последнюю: дальше идти незачем.
         if not found:
             break
         offers.extend(found)

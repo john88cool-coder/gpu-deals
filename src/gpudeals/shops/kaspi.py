@@ -25,6 +25,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .paging import new_offers
 
 SHOP = "kaspi"
 API_URL = "https://kaspi.kz/yml/product-view/pl/filters"
@@ -102,8 +103,6 @@ async def fetch(client, queries: list[str] | None = None) -> list[Offer]:
         except Exception as exc:  # noqa: BLE001 — один запрос не должен ронять обход
             log.warning("kaspi: запрос %r не удался: %s", query, exc)
             continue
-        for offer in found:
-            if offer.identity not in seen:
-                seen.add(offer.identity)
-                offers.append(offer)
+        # Запросы по разным моделям возвращают пересекающиеся выдачи.
+        offers.extend(new_offers(found, seen))
     return offers

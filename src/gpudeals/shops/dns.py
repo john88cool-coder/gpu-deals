@@ -28,6 +28,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .paging import new_offers
 
 SHOP = "dns"
 CATALOG_URL = "https://www.dns-shop.kz/catalog/17a89aab16404e77/videokarty/"
@@ -117,6 +118,7 @@ async def fetch(client) -> list[Offer]:
         ) from exc
 
     offers: list[Offer] = []
+    seen: set[str] = set()
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         # Служебный User-Agent Playwright («HeadlessChrome») вызывает челлендж;
@@ -137,9 +139,12 @@ async def fetch(client) -> list[Offer]:
                         raise
                     log.warning("dns: страница %s не загрузилась: %s", page_number, exc)
                     break
-                found = parse(await page.content())
+                rendered = parse(await page.content())
+                found = new_offers(rendered, seen)
                 offers.extend(found)
-                if len(found) < 12:
+                # Страница целиком из уже виденных позиций означает, что каталог
+                # повторяется: дальше идти незачем.
+                if not found or len(rendered) < 12:
                     break
                 await asyncio.sleep(2.0)
         finally:

@@ -6,12 +6,25 @@
 
 from __future__ import annotations
 
+from html import escape
+
 from .evaluate import Signal, Verdict
 from .models import ItemKind, MatchLevel
 
 
 def _money(value: int) -> str:
     return f"{value:,}".replace(",", " ") + " ₸"
+
+
+def _text(value: str) -> str:
+    """Текст магазина внутри HTML-разметки Telegram.
+
+    Названия и ссылки приходят из каталогов и попадают в сообщение с
+    `parse_mode: HTML`. Одиночный `&` или `<` в названии — это ответ 400 от Bot
+    API, исключение из `run_once` и упавший шаг обхода: база за этот обход не
+    коммитится, снимок цен теряется целиком.
+    """
+    return escape(value, quote=True)
 
 
 # Ниже этого порога относительная цена за производительность — шум округления,
@@ -21,7 +34,7 @@ _PERF_NOTABLE_PCT = 5.0
 
 def format_offer(verdict: Verdict) -> str:
     offer = verdict.offer
-    lines = [f"<b>{offer.title}</b>", f"Цена: {_money(offer.price)}"]
+    lines = [f"<b>{_text(offer.title)}</b>", f"Цена: {_money(offer.price)}"]
 
     for _, explanation in verdict.signals:
         lines.append(f"• {explanation}")
@@ -61,14 +74,14 @@ def format_offer(verdict: Verdict) -> str:
         lines.append(f"⚠ Выше бюджета на {_money(verdict.over_budget_by)}")
 
     if not offer.in_stock or offer.stock_note:
-        lines.append(f"Наличие: {offer.stock_note or 'нет в наличии'}")
+        lines.append(f"Наличие: {_text(offer.stock_note or 'нет в наличии')}")
 
     # У сборок партномера не бывает по определению, поэтому пометка о
     # приблизительности там ничего не сообщает — только у карт.
     if offer.kind is ItemKind.CARD and offer.match_level is MatchLevel.CLASS:
         lines.append("<i>Модель опознана только по классу — сравнение приблизительное</i>")
 
-    lines.append(f'<a href="{offer.url}">{offer.shop}</a>')
+    lines.append(f'<a href="{_text(offer.url)}">{_text(offer.shop)}</a>')
     return "\n".join(lines)
 
 
@@ -90,7 +103,7 @@ def format_digest(verdicts: list[Verdict]) -> str:
 def format_breakage(shop: str, previous_count: int) -> str:
     return (
         f"🔴 <b>Парсер сломался</b>\n"
-        f"Магазин: {shop}\n"
+        f"Магазин: {_text(shop)}\n"
         f"Вернул 0 позиций, в прошлый раз было {previous_count}.\n"
         f"Скорее всего изменилась вёрстка или включилась защита."
     )
@@ -101,6 +114,7 @@ def format_heartbeat(results: list[tuple[str, int, bool]]) -> str:
     alive = sum(1 for _, _, ok in results if ok)
     total_items = sum(count for _, count, ok in results if ok)
     details = ", ".join(
-        f"{shop}: {count}" if ok else f"{shop}: ошибка" for shop, count, ok in results
+        f"{_text(shop)}: {count}" if ok else f"{_text(shop)}: ошибка"
+        for shop, count, ok in results
     )
     return f"✓ {alive}/{len(results)} магазинов опрошено, {total_items} позиций\n{details}"

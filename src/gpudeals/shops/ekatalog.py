@@ -25,6 +25,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .paging import new_offers
 
 SHOP = "e-katalog"
 BASE = "https://e-katalog.kz"
@@ -36,8 +37,6 @@ _MAX_PAGES = 5
 _PAGE_DELAY = 2.0
 
 log = logging.getLogger(__name__)
-
-import re
 
 
 def _clean_number(text: str) -> int | None:
@@ -111,7 +110,9 @@ def _page_hrefs(html: str) -> list[str]:
 async def fetch(client) -> list[Offer]:
     response = await client.get(CATALOG_URL)
     response.raise_for_status()
-    offers = parse(response.text)
+
+    seen: set[str] = set()
+    offers = new_offers(parse(response.text), seen)
 
     pages = min(total_pages(response.text), _MAX_PAGES)
     for page in range(2, pages + 1):
@@ -122,5 +123,5 @@ async def fetch(client) -> list[Offer]:
         except Exception as exc:  # noqa: BLE001 — частичный результат лучше пустого
             log.warning("e-katalog: страница %s не загрузилась: %s", page, exc)
             break
-        offers.extend(parse(extra.text))
+        offers.extend(new_offers(parse(extra.text), seen))
     return offers

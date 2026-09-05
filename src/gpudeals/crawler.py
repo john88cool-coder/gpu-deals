@@ -16,12 +16,14 @@ from .report import format_breakage, format_digest, format_heartbeat
 from .shops import REGISTRY, is_alert_source
 from .storage import (
     class_floor_for_cards,
+    compact,
     connect,
     previous_item_count,
     prune_old_observations,
     record_alert,
     record_crawl,
     save_observations,
+    shop_summary,
 )
 
 log = logging.getLogger("gpudeals")
@@ -126,17 +128,20 @@ async def crawl(
 
     if pruned:
         log.info("удалено устаревших наблюдений: %s", pruned)
+        # VACUUM только после реального удаления: он переписывает файл целиком,
+        # а вне транзакции его можно выполнить лишь на закрытом соединении.
+        if freed := compact():
+            log.info("база сжата, освобождено байт: %s", freed)
     return findings, breakages, summary
 
 
 def run_once(
     notifier: Notifier,
     shops: list[str] | None = None,
-    heartbeat: bool = False,
     watchlist_only: bool = False,
 ) -> int:
     """Один цикл: собрать, оценить, отправить. Возвращает число находок."""
-    findings, breakages, summary = asyncio.run(crawl(shops, watchlist_only=watchlist_only))
+    findings, breakages, _ = asyncio.run(crawl(shops, watchlist_only=watchlist_only))
 
     for text in breakages:
         notifier.send(text)
@@ -144,7 +149,17 @@ def run_once(
     if findings:
         notifier.send(format_digest(findings))
 
-    if heartbeat:
-        notifier.send(format_heartbeat(summary))
-
     return len(findings)
+
+
+def send_heartbeat(notifier: Notifier, shops: list[str] | None = None) -> None:
+    """Строка о живости по итогам последних обходов, без нового обхода.
+
+    Раньше сюда шёл полный обход всех семи магазинов с браузерным DNS, а его
+    находки отправлялись и помечались как отправленные — но workflow heartbeat
+    базу не коммитит, поэтому пометка терялась и та же находка приходила
+    повторно со следующим обходом.
+    """
+    with connect() as conn:
+        summary = shop_summary(conn, shops or list(REGISTRY))
+    notifier.send(format_heartbeat(summary))

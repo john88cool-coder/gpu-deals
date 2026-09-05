@@ -24,15 +24,17 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .paging import new_offers
 
 SHOP = "technodom"
 _BASE = "https://www.technodom.kz/catalog/noutbuki-i-komp-jutery"
 CATALOG_URL = f"{_BASE}/komplektujuschie/videokarty"
 COMPUTERS_URL = f"{_BASE}/komp-jutery-i-monitory"
 
-# Категория компьютеров содержит 205 позиций, из которых сборок с GPU — меньшая
-# часть. Ограничиваем обход, чтобы не тянуть страницы мониторов.
-_MAX_PAGES = 9
+# Категория компьютеров отдаёт 10 страниц, из которых сборок с GPU — меньшая
+# часть. Ограничение оставлено, чтобы обход не тянул страницы мониторов, но
+# берём все страницы, что показывает сама категория.
+_MAX_PAGES = 10
 
 _NEXT_DATA = re.compile(r'__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
 
@@ -125,7 +127,9 @@ async def _fetch_category(client, url: str, *, builds_only: bool) -> list[Offer]
     """Загружает все страницы категории."""
     response = await client.get(url)
     response.raise_for_status()
-    offers = parse(response.text, builds_only=builds_only)
+
+    seen: set[str] = set()
+    offers = new_offers(parse(response.text, builds_only=builds_only), seen)
 
     pages = min(total_pages(response.text), _MAX_PAGES)
     for page in range(2, pages + 1):
@@ -138,7 +142,7 @@ async def _fetch_category(client, url: str, *, builds_only: bool) -> list[Offer]
         except Exception as exc:  # noqa: BLE001 — частичный результат лучше пустого
             log.warning("technodom: страница %s из %s не загрузилась: %s", page, url, exc)
             break
-        offers.extend(parse(extra.text, builds_only=builds_only))
+        offers.extend(new_offers(parse(extra.text, builds_only=builds_only), seen))
     return offers
 
 
@@ -146,4 +150,6 @@ async def fetch(client) -> list[Offer]:
     """Видеокарты и готовые сборки одним обходом."""
     cards = await _fetch_category(client, CATALOG_URL, builds_only=False)
     builds = await _fetch_category(client, COMPUTERS_URL, builds_only=True)
-    return cards + builds
+    # Обе категории проходятся отдельными наборами `seen`, поэтому одна и та же
+    # позиция в двух каталогах ещё возможна: снимаем повтор напоследок.
+    return cards + new_offers(builds, {offer.identity for offer in cards})

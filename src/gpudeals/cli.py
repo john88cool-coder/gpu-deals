@@ -7,7 +7,7 @@ import logging
 import sys
 
 from .config import settings
-from .crawler import run_once
+from .crawler import run_once, send_heartbeat
 from .notify import ConsoleNotifier, Notifier, TelegramNotifier
 from .shops import REGISTRY
 
@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=("crawl", "watchlist", "heartbeat"),
         help=(
             "crawl — полный обход; watchlist — быстрая проверка избранных моделей; "
-            "heartbeat — строка о живости"
+            "heartbeat — строка о живости по итогам последних обходов"
         ),
     )
     parser.add_argument("--shop", action="append", choices=sorted(REGISTRY), help="только эти магазины")
@@ -46,14 +46,14 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     notifier = _build_notifier(args.console)
-    count = run_once(
-        notifier,
-        shops=args.shop,
-        heartbeat=args.command == "heartbeat",
-        watchlist_only=args.command == "watchlist",
-    )
 
-    if args.command in ("crawl", "watchlist") and count == 0:
+    # Сводка читается из базы: собственного обхода она не делает.
+    if args.command == "heartbeat":
+        send_heartbeat(notifier, shops=args.shop)
+        return 0
+
+    count = run_once(notifier, shops=args.shop, watchlist_only=args.command == "watchlist")
+    if count == 0:
         logging.info("находок нет")
     return 0
 

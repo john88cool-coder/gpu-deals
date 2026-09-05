@@ -1,5 +1,7 @@
 name: heartbeat
 # Ежедневная строка о живости: 09:00 по Алматы = 03:00 UTC (UTC+5 без перевода часов).
+# Своего обхода не делает — читает итоги последних обходов из базы, поэтому ни
+# Playwright, ни Chromium здесь не нужны.
 on:
   schedule:
     - cron: '0 3 * * *'
@@ -8,7 +10,7 @@ on:
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -16,16 +18,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Кэш браузера Playwright
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
-
       - name: Зависимости
-        run: |
-          uv sync --extra dns
-          uv run playwright install --with-deps chromium
+        run: uv sync
 
       - name: Сводка
         env:

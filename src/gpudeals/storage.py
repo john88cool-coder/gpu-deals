@@ -114,15 +114,25 @@ def price_history(
 
 
 def class_prices(
-    conn: sqlite3.Connection, kind: ItemKind, class_key: str, window_days: int = 3
+    conn: sqlite3.Connection,
+    kind: ItemKind,
+    class_key: str,
+    window_days: int = 3,
+    exclude_identity: str | None = None,
 ) -> list[int]:
-    """Свежие цены по классу для медианы. Раздельно по типу товара."""
+    """Свежие цены по классу для медианы. Раздельно по типу товара.
+
+    `exclude_identity` убирает из выборки саму оцениваемую позицию: её прошлые
+    наблюдения — не «аналоги». Иначе упавшая в цене карта сравнивалась бы со
+    своей же прежней ценой, и падение выглядело бы выгоднее, чем оно есть.
+    """
     since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
     cur = conn.execute(
         """SELECT identity, MIN(price) AS price FROM observations
            WHERE kind = ? AND class_key = ? AND observed_at >= ?
+                 AND (? IS NULL OR identity <> ?)
            GROUP BY identity""",
-        (kind.value, class_key, since),
+        (kind.value, class_key, since, exclude_identity, exclude_identity),
     )
     return [r["price"] for r in cur]
 
@@ -184,6 +194,29 @@ def prune_old_observations(conn: sqlite3.Connection, days: int = 30) -> int:
     return cur.rowcount
 
 
+def compact(path: Path | None = None) -> int:
+    """Сжимает файл базы, возвращает освободившиеся байты.
+
+    `auto_vacuum` в базе выключен, поэтому удалённые retention-ом страницы
+    остаются в файле: без VACUUM он навсегда сохраняет размер своего пика. Файл
+    коммитится в репозиторий после каждого обхода, а значит каждый пик потом
+    пересохраняется 11 раз в сутки.
+
+    Отдельной функцией, а не внутри `prune_old_observations`: VACUUM нельзя
+    выполнить в транзакции, а `connect()` держит открытую транзакцию до commit.
+    """
+    target = path or DB_PATH
+    if not target.exists():
+        return 0
+    before = target.stat().st_size
+    conn = sqlite3.connect(target, isolation_level=None)
+    try:
+        conn.execute("VACUUM")
+    finally:
+        conn.close()
+    return max(before - target.stat().st_size, 0)
+
+
 def previous_item_count(conn: sqlite3.Connection, shop: str) -> int | None:
     """Сколько позиций дал магазин в прошлый успешный обход."""
     cur = conn.execute(
@@ -193,3 +226,25 @@ def previous_item_count(conn: sqlite3.Connection, shop: str) -> int | None:
     )
     row = cur.fetchone()
     return row["item_count"] if row else None
+
+
+def shop_summary(conn: sqlite3.Connection, shops: Iterable[str]) -> list[tuple[str, int, bool]]:
+    """Итог последнего обхода по каждому магазину: (магазин, позиций, успех).
+
+    Читается из таблицы `crawls`, а не новым обходом: сводка о живости не должна
+    сама быть третьим полным обходом всех каталогов вместе с браузерным DNS.
+    Магазин, по которому записей нет вовсе, попадает в сводку как ошибка — это и
+    есть та поломка, о которой сводка должна сообщать.
+    """
+    summary: list[tuple[str, int, bool]] = []
+    for shop in shops:
+        row = conn.execute(
+            """SELECT item_count, ok FROM crawls WHERE shop = ?
+               ORDER BY started_at DESC LIMIT 1""",
+            (shop,),
+        ).fetchone()
+        if row is None:
+            summary.append((shop, 0, False))
+        else:
+            summary.append((shop, row["item_count"], bool(row["ok"])))
+    return summary

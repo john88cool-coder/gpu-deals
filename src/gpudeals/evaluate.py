@@ -82,7 +82,9 @@ def evaluate(
 
     # Сигнал «дешевле аналогов»: медиана по классу, раздельно по типу товара.
     if offer.class_key:
-        peers = [p for p in class_prices(conn, offer.kind, offer.class_key) if p != offer.price]
+        peers = class_prices(
+            conn, offer.kind, offer.class_key, exclude_identity=offer.identity
+        )
         if len(peers) >= 3:
             class_med = int(median(peers))
             verdict.class_median = class_med

@@ -115,3 +115,28 @@ def test_heartbeat_counts_alive_shops() -> None:
     assert "130" in text
     assert "kaspi: 49" in text
     assert "dns: ошибка" in text
+
+
+def test_shop_text_is_escaped_for_html_mode() -> None:
+    """Сообщения уходят с parse_mode=HTML: `&` в названии — это ответ 400 от
+    Bot API, упавший шаг обхода и потерянный снимок цен за этот обход."""
+    verdict = Verdict(
+        offer=card(
+            title="Видеокарта ASUS <ROG> Strix & TUF 16GB",
+            url="https://shop.kz/offer/x?a=1&b=2",
+            stock_note="под заказ <7 дней>",
+            part_number=None,
+        ),
+        signals=[(Signal.NEW_IN_BUDGET, "тест")],
+    )
+    text = format_offer(verdict)
+
+    assert "&lt;ROG&gt;" in text
+    assert "Strix &amp; TUF" in text
+    assert "под заказ &lt;7 дней&gt;" in text
+    # Ссылка остаётся разметкой, но её содержимое экранировано.
+    assert '<a href="https://shop.kz/offer/x?a=1&amp;b=2">technodom</a>' in text
+    assert text.startswith("<b>")
+    # Ни одного необработанного угла из данных магазина.
+    assert "<ROG>" not in text
+

@@ -1,0 +1,27 @@
+name: tests
+# Тесты идут на сохранённых фикстурах и сети не требуют. Без этого шага поломка
+# парсера всплывала только в продакшене — сообщением «магазин вернул 0 позиций».
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'data/**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+
+      - name: Зависимости
+        run: uv sync --extra dev
+
+      - name: Тесты
+        run: uv run pytest -q

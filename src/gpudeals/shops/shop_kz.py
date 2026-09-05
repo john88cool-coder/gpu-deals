@@ -25,6 +25,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .paging import new_offers
 
 SHOP = "shop.kz"
 BASE = "https://shop.kz"
@@ -112,10 +113,10 @@ def total_pages(html: str) -> int:
     return max(numbers) if numbers else 1
 
 
-async def _fetch_pages(client, url: str) -> list[Offer]:
+async def _fetch_pages(client, url: str, seen: set[str]) -> list[Offer]:
     response = await client.get(url)
     response.raise_for_status()
-    offers = parse(response.text)
+    offers = new_offers(parse(response.text), seen)
 
     pages = min(total_pages(response.text), _MAX_PAGES)
     for page in range(2, pages + 1):
@@ -126,13 +127,13 @@ async def _fetch_pages(client, url: str) -> list[Offer]:
         except Exception as exc:  # noqa: BLE001 — частичный результат лучше пустого
             log.warning("shop.kz: страница %s не загрузилась: %s", page, exc)
             break
-        offers.extend(parse(extra.text))
+        offers.extend(new_offers(parse(extra.text), seen))
     return offers
 
 
 async def fetch(client) -> list[Offer]:
-    offers = await _fetch_pages(client, RTX50_URL)
-    seen = {offer.identity for offer in offers}
+    seen: set[str] = set()
+    offers = await _fetch_pages(client, RTX50_URL, seen)
     # Первая страница общего каталога отсортирована так, что там попадаются
     # прошлые поколения с глубокими уценками.
     await asyncio.sleep(_PAGE_DELAY)
@@ -142,8 +143,5 @@ async def fetch(client) -> list[Offer]:
     except Exception as exc:  # noqa: BLE001
         log.warning("shop.kz: общий каталог не загрузился: %s", exc)
         return offers
-    for offer in parse(response.text):
-        if offer.identity not in seen:
-            seen.add(offer.identity)
-            offers.append(offer)
+    offers.extend(new_offers(parse(response.text), seen))
     return offers

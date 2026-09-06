@@ -47,7 +47,7 @@
 ```bash
 uv sync --extra dev --extra dns   # зависимости + Playwright
 uv run playwright install chromium
-uv run pytest                      # 186 тестов, сеть не нужна
+uv run pytest                      # 190 тестов, сеть не нужна
 uv run gpu-deals crawl --console   # полный обход, вывод в консоль
 ```
 
@@ -124,9 +124,9 @@ src/gpudeals/
   crawler.py     цикл: эталонные магазины сохраняются первыми, потом оценка;
                  send_heartbeat() читает сводку из базы, обхода не делает
   cli.py         crawl / watchlist / heartbeat
-  shops/         7 парсеров, общий интерфейс SHOP/parse(html)/fetch(client)
+  shops/         9 парсеров (alfa, halyk — браузерные), общий интерфейс SHOP/parse(html)/fetch(client)
   shops/paging.py  new_offers(): один identity — одно наблюдение за обход
-tests/           186 тестов на сохранённых фикстурах (сеть не нужна)
+tests/           190 тестов на сохранённых фикстурах (сеть не нужна)
 deploy/          systemd-юниты для VPS (не используются, пока живём на Actions)
 .github/workflows/  crawl (2ч), catchup (ежечасно, если база старше 4ч), watchlist (20мин),
                   heartbeat (03:00 UTC), digest (пн 04:00 UTC), dashboard (пн 04:10 UTC),
@@ -148,6 +148,8 @@ deploy/          systemd-юниты для VPS (не используются, �
 | kaspi.kz | `GET /yml/product-view/pl/filters?text=...&page=0&ui=d` + заголовки `X-KS-City: 750000000` | 12 карточек за запрос; точечно по watchlist, пауза 10 с (robots). Старой цены не отдаёт: unitPrice==unitSalePrice всегда, promo:true у всех |
 | e-katalog.kz | `<tr class="model-short-row">`, `/list/189/` | агрегатор: диапазон цен продавцов, берём нижнюю границу. Истории цен НЕТ (проверено) |
 | dns-shop.kz | headless Chromium (Playwright) | единственный магазин с браузером: Cloudflare-челлендж обычному HTTP. Цены ленивые: приходят позже карточек, на стр. 2+ — после прокрутки. Подменять User-Agent обязательно (штатный Playwright ловит челлендж) |
+| alfa.kz | headless Chromium (Playwright) | анти-бот Anubis: браузер проходит proof-of-work сам. Разметка server-side, microdata; память «6144 Mb» конвертится в ГБ | готово, добавлен 2026-09-06 |
+| halykmarket.kz | Playwright, `channel="chromium"` (полный движок) | headless-движок сайт распознаёт и каталог не отдаёт; подгрузка бесконечным скроллом; robots запрещает `?sort=`/`?f=` — чистая категория | готово, добавлен 2026-09-06 |
 
 robots.txt: у DNS `Disallow: /catalog/markdown/*` — раздел уценки **не парсим
 принципиально**. Kaspi просит Crawl-delay: 10, forcecom 5 — соблюдаем.
@@ -330,6 +332,14 @@ sulpak, отдающий последнюю страницу вместо пус
   роняет уведомление — строка просто не показывается.
 - **Шпаргалка, ресток, минимумы месяца, catch-up, бэктест, дашборд, кнопки,
   Kaspi-алерты** (всё добавлено 2026-09-06):
+  - добавлены магазины alfa.kz и halykmarket.kz (решение владельца, оба URL
+    присланы им): alfa — браузер сквозь Anubis, halyk — channel="chromium";
+    полный обход из 9 магазинов занимает ~70 секунд (магазины параллельно);
+  - Kaspi переведён в источники алертов: собственная история снимков заменила
+    отсутствие магазинных старых цен; e-katalog остался эталоном;
+  - кнопки-ссылки в дайджесте находок: «Открыть в {магазин}» и «Где дешевле:
+    {магазин}» (cheaper_elsewhere несёт URL оффера); вешаются на последний
+    кусок нарезанного сообщения;
   - heartbeat, помимо строки о живости, присылает шпаргалку покупателя:
     лучшая цена сейчас по каждому интересному классу (`storage.
     class_best_offers`) и положение относительно `target_price` — «✓» или

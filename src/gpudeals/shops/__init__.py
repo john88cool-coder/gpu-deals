@@ -8,7 +8,7 @@ ALERT_SOURCE = False означает, что магазин служит эта
 собственной истории снимков.
 """
 
-from . import dns, ekatalog, forcecom, kaspi, shop_kz, sulpak, technodom
+from . import alfa, dns, ekatalog, forcecom, halyk, kaspi, shop_kz, sulpak, technodom
 
 REGISTRY = {
     technodom.SHOP: technodom,
@@ -18,6 +18,8 @@ REGISTRY = {
     ekatalog.SHOP: ekatalog,
     kaspi.SHOP: kaspi,
     dns.SHOP: dns,
+    alfa.SHOP: alfa,
+    halyk.SHOP: halyk,
 }
 
 

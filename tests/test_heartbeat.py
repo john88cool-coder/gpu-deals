@@ -63,7 +63,7 @@ def test_heartbeat_covers_all_shops_by_default(db) -> None:
     crawler.send_heartbeat(notifier)
 
     # Пустая база: все семь магазинов попадают в сводку как неопрошенные.
-    assert "0/7 магазинов опрошено" in notifier.sent[0]
+    assert "0/9 магазинов опрошено" in notifier.sent[0]
 
 
 def _insert_card(conn, identity: str, price: int, shop: str,

@@ -1,0 +1,29 @@
+name: digest
+# Недельный дайджест рынка: медианы классов в динамике, сделка недели, лидеры
+# по цене за балл. Читает локальную базу — обхода, Playwright и Chromium здесь
+# нет. Понедельник 09:00 по Алматы = 04:00 UTC.
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+
+      - name: Зависимости
+        run: uv sync
+
+      - name: Дайджест
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GPUDEALS_DB: ${{ github.workspace }}/data/prices.sqlite3
+        run: uv run gpu-deals digest

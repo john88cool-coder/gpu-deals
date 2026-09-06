@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime, timedelta
+from statistics import median
 
 import httpx
 
@@ -12,7 +14,15 @@ from .config import Settings, settings as default_settings
 from .evaluate import Verdict, evaluate, is_new_low
 from .models import ItemKind
 from .notify import Notifier
-from .report import format_breakage, format_digest, format_heartbeat
+from .report import (
+    DigestDeal,
+    DigestValue,
+    MarketDigest,
+    format_breakage,
+    format_digest,
+    format_heartbeat,
+    format_market_digest,
+)
 from .shops import REGISTRY, is_alert_source
 from .storage import (
     class_floor_for_cards,
@@ -205,3 +215,146 @@ def send_heartbeat(notifier: Notifier, shops: list[str] | None = None) -> None:
     with connect() as conn:
         summary = shop_summary(conn, shops or list(REGISTRY))
     notifier.send(format_heartbeat(summary))
+
+
+# Классов в базе больше двух десятков; в дайджесте оставляем самые подвижные,
+# иначе сообщение превращается в таблицу.
+_DIGEST_TOP_MOVERS = 10
+_DIGEST_TOP_VALUE = 3
+
+
+def _class_weekly_medians(
+    conn, since: str, until: str | None = None
+) -> dict[str, int]:
+    """Медиана класса за окно: по минимуму каждой позиции, только в наличии.
+
+    Минимум на позицию, а не все наблюдения: иначе часто опрашиваемые классы
+    (watchlist) перетягивали бы медиану к своим частым точкам. Критерий
+    «память больше 8 ГБ» соблюдается и здесь: до-фильтровые строки старых
+    обходов не должны попадать в дайджест владельца.
+    """
+    skip = default_settings.thresholds.skip_memory_gb
+    query = """SELECT class_key, MIN(price) AS price FROM observations
+               WHERE kind = 'card' AND class_key IS NOT NULL AND in_stock = 1
+                     AND (memory_gb IS NULL OR memory_gb > ?)
+                     AND observed_at >= ?"""
+    params: list = [skip, since]
+    if until is not None:
+        query += " AND observed_at < ?"
+        params.append(until)
+    query += " GROUP BY identity"
+
+    per_class: dict[str, list[int]] = {}
+    for row in conn.execute(query, params):
+        per_class.setdefault(row["class_key"], []).append(row["price"])
+    return {
+        class_key: int(median(prices))
+        for class_key, prices in per_class.items()
+        if len(prices) >= 3
+    }
+
+
+def _market_digest(conn) -> MarketDigest:
+    """Собирает данные недельного дайджеста из локальной базы.
+
+    Обхода здесь нет и быть не должно: дайджест читает то, что уже накопили
+    обходы, — как heartbeat.
+    """
+    now = datetime.now(UTC)
+    cut7 = (now - timedelta(days=7)).isoformat(timespec="seconds")
+    cut14 = (now - timedelta(days=14)).isoformat(timespec="seconds")
+
+    medians_now = _class_weekly_medians(conn, cut7)
+    medians_prev = _class_weekly_medians(conn, cut14, until=cut7)
+
+    watched = default_settings.watched_class_keys
+
+    def _sort_key(item: tuple[str, int | None, int | None]):
+        class_key, now_m, prev_m = item
+        watched_first = 0 if class_key in watched else 1
+        if now_m and prev_m:
+            movement = abs(now_m - prev_m) / prev_m
+        else:
+            movement = -1.0  # без пары недель класс встаёт в конец списка
+        return (watched_first, -movement)
+
+    medians = sorted(
+        ((ck, medians_now.get(ck), medians_prev.get(ck)) for ck in medians_now),
+        key=_sort_key,
+    )[:_DIGEST_TOP_MOVERS]
+
+    # Сделка недели: позиция, чья минимальная цена за эту неделю просела сильнее
+    # всего против минимума прошлой. MIN(price) с «голыми» колонками —
+    # документированное поведение SQLite: shop/title/url берутся из строки с
+    # минимумом. Только в наличии: «предложение» должно быть покупаемым.
+    # Критерий «больше 8 ГБ» — как во всём дайджесте.
+    skip = default_settings.thresholds.skip_memory_gb
+    vram_ok = "(memory_gb IS NULL OR memory_gb > ?)"
+    prev_min = {
+        row["identity"]: row["price"]
+        for row in conn.execute(
+            f"""SELECT identity, MIN(price) AS price FROM observations
+                WHERE kind = 'card' AND in_stock = 1 AND {vram_ok}
+                  AND observed_at >= ? AND observed_at < ?
+                GROUP BY identity""",
+            (skip, cut14, cut7),
+        )
+    }
+    best_deal: DigestDeal | None = None
+    for row in conn.execute(
+        f"""SELECT identity, MIN(price) AS price, shop, title, url
+            FROM observations
+            WHERE kind = 'card' AND in_stock = 1 AND {vram_ok} AND observed_at >= ?
+            GROUP BY identity""",
+        (skip, cut7),
+    ):
+        prev = prev_min.get(row["identity"])
+        if not prev or prev <= row["price"]:
+            continue
+        drop = (prev - row["price"]) / prev * 100
+        if best_deal is None or drop > best_deal.drop_pct:
+            best_deal = DigestDeal(
+                title=row["title"], shop=row["shop"], price=row["price"],
+                prev_price=prev, drop_pct=drop, url=row["url"],
+            )
+
+    # Лидеры по цене за балл: последняя наблюдённая цена позиции за неделю,
+    # делённая на балл PassMark её чипа. MAX(observed_at) с «голыми» колонками
+    # даёт именно последнюю строку позиции.
+    latest: dict[str, dict] = {}
+    for row in conn.execute(
+        f"""SELECT identity, MAX(observed_at) AS at, price, shop, title, url,
+                   chip, class_key
+            FROM observations
+            WHERE kind = 'card' AND in_stock = 1 AND {vram_ok} AND observed_at >= ?
+            GROUP BY identity""",
+        (skip, cut7),
+    ):
+        latest[row["identity"]] = dict(row)
+
+    candidates: list[DigestValue] = []
+    for row in latest.values():
+        rating = benchmarks.rating_for(row["class_key"], row["chip"])
+        if rating and rating.g3d > 0:
+            title = row["title"]
+            # Заголовки магазинов длинные: в дайджесте их подрезаем, полный
+            # титул всегда есть в алертах и по ссылке.
+            if len(title) > 70:
+                title = title[:69].rstrip() + "…"
+            candidates.append(
+                DigestValue(
+                    title=title, shop=row["shop"], price=row["price"],
+                    per_point=row["price"] / rating.g3d,
+                )
+            )
+    value_leaders = sorted(candidates, key=lambda v: v.per_point)[:_DIGEST_TOP_VALUE]
+
+    return MarketDigest(medians=medians, best_deal=best_deal, value_leaders=value_leaders)
+
+
+def send_digest(notifier: Notifier) -> None:
+    """Недельный дайджест рынка: медианы в динамике, сделка недели, лидеры
+    по цене за балл. Читает локальную базу, обхода не делает."""
+    with connect() as conn:
+        data = _market_digest(conn)
+    notifier.send(format_market_digest(data))

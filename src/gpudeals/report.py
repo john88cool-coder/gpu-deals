@@ -6,11 +6,47 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html import escape
 
 from . import benchmarks
 from .evaluate import Signal, Verdict
 from .models import ItemKind, MatchLevel
+
+
+@dataclass(frozen=True)
+class DigestDeal:
+    """Лучшее предложение недели: позиция, упавшая сильнее всех."""
+
+    title: str
+    shop: str
+    price: int
+    prev_price: int
+    drop_pct: float
+    url: str
+
+
+@dataclass(frozen=True)
+class DigestValue:
+    """Лидер по цене за балл PassMark."""
+
+    title: str
+    shop: str
+    price: int
+    per_point: float
+
+
+@dataclass(frozen=True)
+class MarketDigest:
+    """Данные недельного дайджеста рынка, собранные из базы.
+
+    `medians` — (class_key, медиана текущей недели, медиана предыдущей);
+    предыдущая может отсутствовать — база ещё не копила две недели.
+    """
+
+    medians: list[tuple[str, int | None, int | None]]
+    best_deal: DigestDeal | None
+    value_leaders: list[DigestValue]
 
 
 def _money(value: int) -> str:
@@ -139,3 +175,57 @@ def format_heartbeat(results: list[tuple[str, int, bool]]) -> str:
         for shop, count, ok in results
     )
     return f"✓ {alive}/{len(results)} магазинов опрошено, {total_items} позиций\n{details}"
+
+
+def _delta_line(now: int | None, prev: int | None) -> str:
+    """Изменение медианы за неделю: «+2%», «−3%» или «—» без прошлой недели."""
+    if prev is None or not prev:
+        return "—"
+    pct = (now - prev) / prev * 100
+    if abs(pct) < 0.5:
+        return "±0%"
+    return f"{pct:+.0f}%"
+
+
+def format_market_digest(data: MarketDigest) -> str:
+    """Недельный дайджест рынка: одно сообщение, читается за минуту.
+
+    Медианы показывают, куда движутся цены по классам (брать сейчас или
+    подождать), сделка недели — что упало сильнее всех, лидеры по цене за
+    балл — где сейчас максимум производительности за деньги.
+    """
+    blocks = ["📊 Дайджест рынка за неделю"]
+
+    if data.medians:
+        blocks.append("\n<b>── Медианы классов, ₸ ──</b>")
+        for class_key, now, prev in data.medians:
+            delta = _delta_line(now, prev)
+            base = f"• {class_key}: {_money(now) if now else '—'} ({delta})"
+            blocks.append(base)
+    else:
+        blocks.append("\nМедиан пока нет — база только начинает копиться.")
+
+    if data.best_deal:
+        deal = data.best_deal
+        blocks.append("\n<b>── Лучшее предложение недели ──</b>")
+        blocks.append(
+            f"<b>{_text(deal.title)}</b> ({_text(deal.shop)})\n"
+            f"{_money(deal.price)}, −{deal.drop_pct:.0f}% за неделю "
+            f"(было {_money(deal.prev_price)})\n"
+            f'<a href="{_text(deal.url)}">открыть</a>'
+        )
+    else:
+        blocks.append(
+            "\nЛучшее предложение недели не определено: нужно две недели истории."
+        )
+
+    if data.value_leaders:
+        blocks.append("\n<b>── Лидеры по цене за балл ──</b>")
+        for index, leader in enumerate(data.value_leaders, start=1):
+            blocks.append(
+                f"{index}. {_text(leader.title)} ({_text(leader.shop)}) — "
+                f"{_money(leader.price)}, "
+                f"{str(round(leader.per_point, 1)).replace('.', ',')} ₸/балл"
+            )
+
+    return "\n".join(blocks)

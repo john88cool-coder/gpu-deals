@@ -10,7 +10,7 @@ from statistics import median
 import httpx
 
 from . import benchmarks
-from .config import Settings, settings as default_settings
+from .config import INTERESTED_CHIPS, Settings, settings as default_settings
 from .evaluate import Verdict, evaluate, is_new_low
 from .models import ItemKind
 from .notify import Notifier
@@ -82,11 +82,21 @@ async def crawl(
     # там, где магазин жив, но весь его ассортимент отфильтрован по объёму.
     raw_counts = {shop: len(offers) for shop, offers, _ in results}
 
-    # Решение владельца: карта покупается с памятью больше 8 ГБ, позиции с
-    # меньшим объёмом (и сборки с такой картой) не рассматриваются вовсе.
+    # Решение владельца: интересуют только новейшие серии (INTERESTED_CHIPS)
+    # с памятью больше 8 ГБ. Позиции интересных чипов с неопознанным объёмом
+    # остаются — за «неизвестно» может прятаться 16 ГБ. Всё прочее (5080/5090,
+    # старые серии, рабочие карты) не собирается вовсе.
     skip = config.thresholds.skip_memory_gb
     results = [
-        (shop, [o for o in offers if o.memory_gb is None or o.memory_gb > skip], error)
+        (
+            shop,
+            [
+                o for o in offers
+                if o.chip in INTERESTED_CHIPS
+                and (o.memory_gb is None or o.memory_gb > skip)
+            ],
+            error,
+        )
         for shop, offers, error in results
     ]
 
@@ -229,16 +239,18 @@ def _class_weekly_medians(
     """Медиана класса за окно: по минимуму каждой позиции, только в наличии.
 
     Минимум на позицию, а не все наблюдения: иначе часто опрашиваемые классы
-    (watchlist) перетягивали бы медиану к своим частым точкам. Критерий
-    «память больше 8 ГБ» соблюдается и здесь: до-фильтровые строки старых
-    обходов не должны попадать в дайджест владельца.
+    (watchlist) перетягивали бы медиану к своим частым точкам. Фильтры
+    интересов владельца соблюдены и здесь: до-фильтровые строки старых обходов
+    (5080, 30-я серия, ≤8 ГБ) не должны попадать в дайджест.
     """
     skip = default_settings.thresholds.skip_memory_gb
-    query = """SELECT class_key, MIN(price) AS price FROM observations
-               WHERE kind = 'card' AND class_key IS NOT NULL AND in_stock = 1
-                     AND (memory_gb IS NULL OR memory_gb > ?)
-                     AND observed_at >= ?"""
-    params: list = [skip, since]
+    chips_q = ",".join("?" * len(INTERESTED_CHIPS))
+    query = f"""SELECT class_key, MIN(price) AS price FROM observations
+                WHERE kind = 'card' AND class_key IS NOT NULL AND in_stock = 1
+                      AND chip IN ({chips_q})
+                      AND (memory_gb IS NULL OR memory_gb > ?)
+                      AND observed_at >= ?"""
+    params: list = sorted(INTERESTED_CHIPS) + [skip, since]
     if until is not None:
         query += " AND observed_at < ?"
         params.append(until)
@@ -287,26 +299,30 @@ def _market_digest(conn) -> MarketDigest:
     # всего против минимума прошлой. MIN(price) с «голыми» колонками —
     # документированное поведение SQLite: shop/title/url берутся из строки с
     # минимумом. Только в наличии: «предложение» должно быть покупаемым.
-    # Критерий «больше 8 ГБ» — как во всём дайджесте.
+    # Фильтры интересов — как во всём дайджесте: интересуют только новейшие
+    # серии и память больше 8 ГБ, до-фильтровые строки старых обходов мимо.
     skip = default_settings.thresholds.skip_memory_gb
-    vram_ok = "(memory_gb IS NULL OR memory_gb > ?)"
+    chips_q = ",".join("?" * len(INTERESTED_CHIPS))
+    interest_filter = f"chip IN ({chips_q}) AND (memory_gb IS NULL OR memory_gb > ?)"
+    interest_params = sorted(INTERESTED_CHIPS) + [skip]
     prev_min = {
         row["identity"]: row["price"]
         for row in conn.execute(
             f"""SELECT identity, MIN(price) AS price FROM observations
-                WHERE kind = 'card' AND in_stock = 1 AND {vram_ok}
+                WHERE kind = 'card' AND in_stock = 1 AND {interest_filter}
                   AND observed_at >= ? AND observed_at < ?
                 GROUP BY identity""",
-            (skip, cut14, cut7),
+            (*interest_params, cut14, cut7),
         )
     }
     best_deal: DigestDeal | None = None
     for row in conn.execute(
         f"""SELECT identity, MIN(price) AS price, shop, title, url
             FROM observations
-            WHERE kind = 'card' AND in_stock = 1 AND {vram_ok} AND observed_at >= ?
+            WHERE kind = 'card' AND in_stock = 1 AND {interest_filter}
+                  AND observed_at >= ?
             GROUP BY identity""",
-        (skip, cut7),
+        (*interest_params, cut7),
     ):
         prev = prev_min.get(row["identity"])
         if not prev or prev <= row["price"]:
@@ -326,9 +342,10 @@ def _market_digest(conn) -> MarketDigest:
         f"""SELECT identity, MAX(observed_at) AS at, price, shop, title, url,
                    chip, class_key
             FROM observations
-            WHERE kind = 'card' AND in_stock = 1 AND {vram_ok} AND observed_at >= ?
+            WHERE kind = 'card' AND in_stock = 1 AND {interest_filter}
+                  AND observed_at >= ?
             GROUP BY identity""",
-        (skip, cut7),
+        (*interest_params, cut7),
     ):
         latest[row["identity"]] = dict(row)
 

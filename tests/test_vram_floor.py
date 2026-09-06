@@ -51,6 +51,48 @@ class FakeShop:
         ]
 
 
+def test_crawl_drops_chips_outside_owner_interest(tmp_path, monkeypatch) -> None:
+    """Интересуют только новейшие серии: RTX 5080 и 30-я серия не собираются,
+    даже если памяти больше 8 ГБ. Неопознанный чип — тоже мимо."""
+
+    class FakeShop:
+        SHOP = "fake"
+
+        @staticmethod
+        async def fetch(client):  # noqa: ANN001
+            return [
+                offer(16),                                     # rtx5070 — остаётся
+                Offer(
+                    shop="fake", kind=ItemKind.CARD,
+                    title="Видеокарта RTX 5080 16GB", price=100_000,
+                    url="https://example.kz", chip="rtx5080", memory_gb=16,
+                    class_key="rtx5080-16", part_number="GV-5080",
+                ),
+                Offer(
+                    shop="fake", kind=ItemKind.CARD,
+                    title="Видеокарта RTX 3060 12GB", price=100_000,
+                    url="https://example.kz", chip="rtx3060", memory_gb=12,
+                    class_key="rtx3060-12", part_number="GV-3060",
+                ),
+                Offer(
+                    shop="fake", kind=ItemKind.CARD,
+                    title="Видеокарта неведомая 16GB", price=100_000,
+                    url="https://example.kz", chip=None, memory_gb=16,
+                    class_key=None, part_number="GV-X",
+                ),
+            ]
+
+    monkeypatch.setitem(crawler.REGISTRY, "fake", FakeShop)
+    db = tmp_path / "db.sqlite3"
+    monkeypatch.setattr("gpudeals.storage.DB_PATH", db)
+
+    asyncio.run(crawler.crawl(["fake"]))
+
+    with connect(db) as conn:
+        saved = {r["identity"] for r in conn.execute("SELECT identity FROM observations")}
+    assert saved == {"fake:pn:gv-16"}
+
+
 @pytest.fixture
 def isolated_crawl(tmp_path, monkeypatch):
     """Фейковый магазин и база во временной папке: сети и живой базы нет."""

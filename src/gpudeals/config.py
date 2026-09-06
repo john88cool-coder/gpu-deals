@@ -47,6 +47,21 @@ class Thresholds:
     skip_memory_gb: int = 8
 
 
+# Решение владельца (2026-09-06): интересуют только новейшие серии. Всё, что
+# не перечислено здесь — RTX 5080/5090, 40-я и 30-я серии, рабочие Quadro/RTX
+# Ada — не собирается вовсе. У RTX 5060 Ti и RX 9060 XT действует и правило
+# памяти: только 16-гигабайтные варианты (см. skip_memory_gb). Позиции этих
+# чипов с неопознанным объёмом остаются — за «неизвестно» может прятаться 16 ГБ.
+INTERESTED_CHIPS: frozenset[str] = frozenset({
+    "rtx5070ti",
+    "rtx5070",
+    "rtx5060ti",
+    "rx9070xt",
+    "rx9070",
+    "rx9060xt",
+})
+
+
 @dataclass(frozen=True)
 class WatchedModel:
     """Модель для частой проверки.
@@ -68,14 +83,16 @@ class Settings:
     thresholds: Thresholds = field(default_factory=Thresholds)
     telegram_token: str | None = os.environ.get("TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str | None = os.environ.get("TELEGRAM_CHAT_ID")
-    # Модели для частой проверки (каждые 15-20 минут). Цели — уровни лучших
-    # цен, что мы видели на рынке: дошли — пора брать. Правятся под себя.
+    # Модели для частой проверки (каждые 15-20 минут). Список совпадает с
+    # интересами владельца целиком. Цели — уровни лучших цен, что мы видели на
+    # рынке: дошли — пора брать. Правятся под себя.
     watchlist: tuple[WatchedModel, ...] = (
-        WatchedModel("RTX 5060 Ti 16", "rtx5060ti-16", target_price=320_000),
+        WatchedModel("RTX 5060 Ti 16", "rtx5060ti-16", target_price=295_000),
         WatchedModel("RTX 5070 12", "rtx5070-12", target_price=365_000),
         WatchedModel("RTX 5070 Ti 16", "rtx5070ti-16", target_price=525_000),
-        WatchedModel("RX 9070", "rx9070-16"),
-        WatchedModel("RX 9070 XT", "rx9070xt-16", target_price=450_000),
+        WatchedModel("RX 9070", "rx9070-16", target_price=350_000),
+        WatchedModel("RX 9070 XT", "rx9070xt-16", target_price=420_000),
+        WatchedModel("RX 9060 XT 16", "rx9060xt-16", target_price=250_000),
     )
     request_timeout: float = 25.0
     user_agent: str = (

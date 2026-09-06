@@ -62,18 +62,33 @@ def test_medians_show_week_over_week_change(conn) -> None:
     insert(conn, "b", 355_000, days_ago=3)
     insert(conn, "d", 365_000, days_ago=10)
     insert(conn, "d", 350_000, days_ago=2)
-    # Соседний класс вырос.
+    # Соседний интересный класс вырос.
     for price_prev, price_now, name in [(800_000, 850_000, "c"),
                                         (810_000, 850_000, "e"),
                                         (820_000, 850_000, "f")]:
-        insert(conn, name, price_prev, days_ago=10, class_key="rtx5080-16", chip="rtx5080")
-        insert(conn, name, price_now, days_ago=2, class_key="rtx5080-16", chip="rtx5080")
+        insert(conn, name, price_prev, days_ago=10,
+               class_key="rtx5070ti-16", chip="rtx5070ti")
+        insert(conn, name, price_now, days_ago=2,
+               class_key="rtx5070ti-16", chip="rtx5070ti")
 
     data = crawler._market_digest(conn)
 
     medians = {ck: (now, prev) for ck, now, prev in data.medians}
     assert medians["rtx5070-12"] == (350_000, 365_000)
-    assert medians["rtx5080-16"] == (850_000, 810_000)
+    assert medians["rtx5070ti-16"] == (850_000, 810_000)
+
+
+def test_digest_excludes_chips_outside_owner_interest(conn) -> None:
+    """RTX 5080 и 30-я серия не входят в интересы владельца — и в дайджест нет,
+    даже если их до-фильтровые строки ещё лежат в базе (retention 30 дней)."""
+    for name, days in [("g1", 10), ("g2", 9), ("g3", 2)]:
+        insert(conn, name, 800_000, days_ago=days,
+               class_key="rtx5080-16", chip="rtx5080")
+    insert(conn, "old3060", 200_000, days_ago=2,
+           class_key="rtx3060-12", chip="rtx3060")
+
+    data = crawler._market_digest(conn)
+    assert data.medians == []
 
 
 def test_medians_ignore_sparse_and_out_of_stock(conn) -> None:

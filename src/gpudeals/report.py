@@ -42,11 +42,13 @@ class MarketDigest:
 
     `medians` — (class_key, медиана текущей недели, медиана предыдущей);
     предыдущая может отсутствовать — база ещё не копила две недели.
+    `monthly_minima` — (class_key, минимум за 30 дней, магазин).
     """
 
     medians: list[tuple[str, int | None, int | None]]
     best_deal: DigestDeal | None
     value_leaders: list[DigestValue]
+    monthly_minima: list[tuple[str, int, str]]
 
 
 def _money(value: int) -> str:
@@ -166,6 +168,23 @@ def format_breakage(shop: str, previous_count: int) -> str:
     )
 
 
+def format_buyers_guide(
+    offers: list[tuple[str, int, str]], targets: dict[str, int]
+) -> str:
+    """Ежедневная шпаргалка покупателя: лучшая цена сейчас по каждому классу
+    и сколько осталось до личной цели."""
+    lines = ["<b>── Шпаргалка покупателя ──</b>"]
+    for class_key, price, shop in offers:
+        line = f"• {class_key}: {_money(price)} ({_text(shop)})"
+        if (target := targets.get(class_key)) is not None:
+            if price <= target:
+                line += f" — цель {_money(target)} ✓"
+            else:
+                line += f" — до цели {_money(price - target)}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def format_heartbeat(results: list[tuple[str, int, bool]]) -> str:
     """Ежедневная строка о живости: сколько магазинов опрошено и позиций найдено."""
     alive = sum(1 for _, _, ok in results if ok)
@@ -227,5 +246,10 @@ def format_market_digest(data: MarketDigest) -> str:
                 f"{_money(leader.price)}, "
                 f"{str(round(leader.per_point, 1)).replace('.', ',')} ₸/балл"
             )
+
+    if data.monthly_minima:
+        blocks.append("\n<b>── Минимумы за месяц наблюдений ──</b>")
+        for class_key, price, shop in data.monthly_minima:
+            blocks.append(f"• {class_key}: {_money(price)} ({_text(shop)})")
 
     return "\n".join(blocks)

@@ -14,7 +14,7 @@ from statistics import median
 
 from .config import Thresholds
 from .models import ItemKind, MatchLevel, Offer
-from .storage import class_prices, last_alert, price_history
+from .storage import class_prices, last_alert, last_in_stock, price_history
 
 
 class Signal(str, Enum):
@@ -22,6 +22,7 @@ class Signal(str, Enum):
     BELOW_CLASS = "дешевле аналогов"
     NEW_IN_BUDGET = "новинка в бюджете"
     TARGET_PRICE = "целевая цена"
+    RESTOCK = "в наличие"
 
 
 @dataclass
@@ -129,6 +130,20 @@ def evaluate(
         verdict.signals.append((
             Signal.TARGET_PRICE,
             f"цена дошла до цели: {_tenge(offer.price)} (цель {_tenge(target)})",
+        ))
+
+    # Сигнал «в наличие»: позиция вернулась на витрину, и цена при возврате не
+    # выше личной цели. Прошлые алерты по этой позиции могли быть дешевле —
+    # is_new_low подавил бы ресток, поэтому в crawler он обходит дедупликацию.
+    if (
+        offer.in_stock
+        and target
+        and offer.price <= target
+        and last_in_stock(conn, offer.identity) is False
+    ):
+        verdict.signals.append((
+            Signal.RESTOCK,
+            f"появился в наличии по {_tenge(offer.price)} (цель {_tenge(target)})",
         ))
 
     # Сравнение с другими магазинами: тот же тип товара и класс в текущем

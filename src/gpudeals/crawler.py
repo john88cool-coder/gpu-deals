@@ -11,7 +11,7 @@ import httpx
 
 from . import benchmarks
 from .config import INTERESTED_CHIPS, Settings, settings as default_settings
-from .evaluate import Verdict, evaluate, is_new_low
+from .evaluate import Signal, Verdict, evaluate, is_new_low
 from .models import ItemKind
 from .notify import Notifier
 from .report import (
@@ -19,12 +19,14 @@ from .report import (
     DigestValue,
     MarketDigest,
     format_breakage,
+    format_buyers_guide,
     format_digest,
     format_heartbeat,
     format_market_digest,
 )
 from .shops import REGISTRY, is_alert_source
 from .storage import (
+    class_best_offers,
     class_floor_for_cards,
     compact,
     connect,
@@ -52,16 +54,32 @@ async def crawl(
     shops: list[str] | None = None,
     config: Settings | None = None,
     watchlist_only: bool = False,
+    stale_hours: float | None = None,
 ) -> tuple[list[Verdict], list[str], list[tuple[str, int, bool]]]:
     """Обходит магазины, возвращает находки, тревоги о поломке и итоги обхода.
 
     `watchlist_only` сужает результат до классов из watchlist. Тревога о поломке
     в этом режиме не поднимается: пустой результат может означать просто
-    отсутствие нужных моделей в наличии.
+    отсутствие нужных моделей в наличии. `stale_hours` — режим catch-up для
+    Actions: обходить только если последний обход старше N часов, иначе тихо
+    выйти (GitHub задерживает и отбрасывает запуски по расписанию).
     """
     config = config or default_settings
     targets = {name: REGISTRY[name] for name in (shops or REGISTRY)}
     watched = config.watched_class_keys if watchlist_only else None
+
+    if stale_hours is not None:
+        with connect() as conn:
+            row = conn.execute("SELECT MAX(observed_at) AS at FROM observations").fetchone()
+        if row and row["at"]:
+            last = datetime.fromisoformat(row["at"])
+            age = (datetime.now(UTC) - last).total_seconds() / 3600
+            if age < stale_hours:
+                log.info(
+                    "последний обход %.1f ч назад (< %.1f ч) — обход не требуется",
+                    age, stale_hours,
+                )
+                return [], [], []
 
     headers = {"User-Agent": config.user_agent, "Accept-Language": "ru,en;q=0.8"}
     async with httpx.AsyncClient(
@@ -171,7 +189,11 @@ async def crawl(
                 verdict = evaluate(
                     conn, offer, config.thresholds, card_floor, shop_minima, watch_targets
                 )
-                if verdict.should_alert and is_new_low(conn, offer):
+                # Ресток по целевой цене обходит is_new_low: прошлый алерт мог
+                # быть дешевле, но «вернулся в наличие по цели» — само по себе
+                # новость, которую владелец просил не терять.
+                restocked = any(s is Signal.RESTOCK for s, _ in verdict.signals)
+                if verdict.should_alert and (is_new_low(conn, offer) or restocked):
                     verdict.perf_vs_class_pct = benchmarks.relative_value_pct(
                         offer.chip, offer.price, verdict.class_median
                     )
@@ -201,9 +223,12 @@ def run_once(
     notifier: Notifier,
     shops: list[str] | None = None,
     watchlist_only: bool = False,
+    stale_hours: float | None = None,
 ) -> int:
     """Один цикл: собрать, оценить, отправить. Возвращает число находок."""
-    findings, breakages, _ = asyncio.run(crawl(shops, watchlist_only=watchlist_only))
+    findings, breakages, _ = asyncio.run(
+        crawl(shops, watchlist_only=watchlist_only, stale_hours=stale_hours)
+    )
 
     for text in breakages:
         notifier.send(text)
@@ -215,7 +240,7 @@ def run_once(
 
 
 def send_heartbeat(notifier: Notifier, shops: list[str] | None = None) -> None:
-    """Строка о живости по итогам последних обходов, без нового обхода.
+    """Строка о живости + ежедневная шпаргалка покупателя, без нового обхода.
 
     Раньше сюда шёл полный обход всех семи магазинов с браузерным DNS, а его
     находки отправлялись и помечались как отправленные — но workflow heartbeat
@@ -224,7 +249,25 @@ def send_heartbeat(notifier: Notifier, shops: list[str] | None = None) -> None:
     """
     with connect() as conn:
         summary = shop_summary(conn, shops or list(REGISTRY))
-    notifier.send(format_heartbeat(summary))
+        best = class_best_offers(
+            conn,
+            INTERESTED_CHIPS,
+            default_settings.thresholds.skip_memory_gb,
+        )
+    targets = {
+        model.class_key: model.target_price
+        for model in default_settings.watchlist
+        if model.target_price is not None
+    }
+    text = format_heartbeat(summary)
+    if best:
+        # Порядок шпаргалки — порядок watchlist: интересы владельца сверху.
+        order = {ck: i for i, ck in enumerate(default_settings.watched_class_keys)}
+        offers = sorted(best.items(), key=lambda item: order.get(item[0], 99))
+        text += "\n\n" + format_buyers_guide(
+            [(ck, price, shop) for ck, (shop, price) in offers], targets
+        )
+    notifier.send(text)
 
 
 # Классов в базе больше двух десятков; в дайджесте оставляем самые подвижные,
@@ -366,7 +409,25 @@ def _market_digest(conn) -> MarketDigest:
             )
     value_leaders = sorted(candidates, key=lambda v: v.per_point)[:_DIGEST_TOP_VALUE]
 
-    return MarketDigest(medians=medians, best_deal=best_deal, value_leaders=value_leaders)
+    # Минимумы за месяц наблюдений: ориентир «ниже пока не бывало». Окно —
+    # весь удерживаемый практикой месяц; та же фильтрация интересов.
+    cut30 = (now - timedelta(days=30)).isoformat(timespec="seconds")
+    monthly_minima = [
+        (row["class_key"], row["price"], row["shop"])
+        for row in conn.execute(
+            f"""SELECT class_key, MIN(price) AS price, shop
+                FROM observations
+                WHERE kind = 'card' AND in_stock = 1 AND {interest_filter}
+                      AND class_key IS NOT NULL AND observed_at >= ?
+                GROUP BY class_key""",
+            (*interest_params, cut30),
+        )
+    ]
+
+    return MarketDigest(
+        medians=medians, best_deal=best_deal, value_leaders=value_leaders,
+        monthly_minima=monthly_minima,
+    )
 
 
 def send_digest(notifier: Notifier) -> None:

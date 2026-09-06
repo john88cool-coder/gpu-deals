@@ -39,17 +39,31 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "command",
-        choices=("crawl", "watchlist", "heartbeat", "digest", "refresh-benchmarks"),
+        choices=("crawl", "watchlist", "heartbeat", "digest", "render-dashboard",
+                 "refresh-benchmarks"),
         help=(
             "crawl — полный обход; watchlist — быстрая проверка избранных моделей; "
-            "heartbeat — строка о живости по итогам последних обходов; "
+            "heartbeat — строка о живости и шпаргалка покупателя; "
             "digest — недельный дайджест рынка; "
+            "render-dashboard — статическая страница рынка; "
             "refresh-benchmarks — обновить справочник рейтинга PassMark"
         ),
     )
     parser.add_argument("--shop", action="append", choices=sorted(REGISTRY), help="только эти магазины")
     parser.add_argument("--console", action="store_true", help="печатать вместо отправки в Telegram")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--out",
+        default="site/index.html",
+        help="render-dashboard: куда писать HTML-файл",
+    )
+    parser.add_argument(
+        "--if-stale-hours",
+        type=float,
+        default=None,
+        metavar="N",
+        help="crawl: обходить только если последний обход старше N часов",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -71,8 +85,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "digest":
         send_digest(notifier)
         return 0
+    if args.command == "render-dashboard":
+        from .config import DB_PATH
+        from .dashboard import render
+        from .storage import connect
 
-    count = run_once(notifier, shops=args.shop, watchlist_only=args.command == "watchlist")
+        with connect(DB_PATH) as conn:
+            sections = render(conn, args.out)
+        logging.info("дашборд записан: %s (классов: %s)", args.out, sections)
+        return 0
+
+    count = run_once(
+        notifier,
+        shops=args.shop,
+        watchlist_only=args.command == "watchlist",
+        stale_hours=args.if_stale_hours,
+    )
     if count == 0:
         logging.info("находок нет")
     return 0

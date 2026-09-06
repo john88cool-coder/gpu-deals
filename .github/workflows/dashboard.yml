@@ -1,0 +1,50 @@
+name: dashboard
+# Еженедельная статическая страница рынка (графики медиан, минимумы, лидеры
+# по цене за балл) на GitHub Pages. Читает локальную базу, обхода нет.
+on:
+  schedule:
+    - cron: '10 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+
+      - name: Зависимости
+        run: uv sync
+
+      - name: Собрать страницу
+        env:
+          GPUDEALS_DB: ${{ github.workspace }}/data/prices.sqlite3
+        run: uv run gpu-deals render-dashboard --out site/index.html
+
+      - name: Настроить Pages
+        uses: actions/configure-pages@v5
+
+      - name: Опубликовать
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

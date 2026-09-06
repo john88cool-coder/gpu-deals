@@ -1,0 +1,53 @@
+name: catchup
+# Страховка от задержек cron на Actions: каждый час проверяет свежесть базы и
+# делает полный обход, только если последний старше 4 часов. Одна concurrency-
+# группа с crawl — запуски не пересекаются. Без этого фактическая частота
+# обхода на Actions — 4-7 часов вместо двух.
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+jobs:
+  catchup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+
+      - name: Кэш браузера Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Зависимости
+        run: |
+          uv sync --extra dns
+          uv run playwright install --with-deps chromium
+
+      - name: Обход, если база устарела
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GPUDEALS_DB: ${{ github.workspace }}/data/prices.sqlite3
+        run: uv run gpu-deals crawl --if-stale-hours 4
+
+      - name: Сохранить базу
+        run: |
+          git config user.name "gpu-deals"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/prices.sqlite3
+          git diff --cached --quiet || git commit -m "prices [skip ci]"
+          git push

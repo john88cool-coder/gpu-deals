@@ -160,6 +160,40 @@ def class_floor_for_cards(
     return {row["class_key"]: row["floor"] for row in cur}
 
 
+def class_best_offers(
+    conn, chips: frozenset[str], skip_memory_gb: int, window_days: int = 3
+) -> dict[str, tuple[str, int]]:
+    """Лучшее предложение по каждому классу: (магазин, цена).
+
+    Для ежедневной шпаргалки покупателя. Только в наличии, только интересующие
+    чипы; MIN(price) с «голыми» колонками отдаёт shop из строки минимума —
+    документированное поведение SQLite.
+    """
+    since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
+    chips_q = ",".join("?" * len(chips))
+    cur = conn.execute(
+        f"""SELECT class_key, MIN(price) AS price, shop
+            FROM observations
+            WHERE kind = 'card' AND class_key IS NOT NULL AND in_stock = 1
+                  AND chip IN ({chips_q})
+                  AND (memory_gb IS NULL OR memory_gb > ?)
+                  AND observed_at >= ?
+            GROUP BY class_key""",
+        (*sorted(chips), skip_memory_gb, since),
+    )
+    return {row["class_key"]: (row["shop"], row["price"]) for row in cur}
+
+
+def last_in_stock(conn: sqlite3.Connection, identity: str) -> bool | None:
+    """Была ли позиция в наличии при последней записи. None — записей нет."""
+    row = conn.execute(
+        """SELECT in_stock FROM observations WHERE identity = ?
+           ORDER BY observed_at DESC, id DESC LIMIT 1""",
+        (identity,),
+    ).fetchone()
+    return None if row is None else bool(row["in_stock"])
+
+
 def last_alert(conn: sqlite3.Connection, identity: str) -> int | None:
     cur = conn.execute("SELECT alerted_price FROM alerts WHERE identity = ?", (identity,))
     row = cur.fetchone()

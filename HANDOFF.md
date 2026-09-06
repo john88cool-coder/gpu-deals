@@ -47,7 +47,7 @@
 ```bash
 uv sync --extra dev --extra dns   # зависимости + Playwright
 uv run playwright install chromium
-uv run pytest                      # 167 тестов, сеть не нужна
+uv run pytest                      # 181 тест, сеть не нужна
 uv run gpu-deals crawl --console   # полный обход, вывод в консоль
 ```
 
@@ -126,9 +126,11 @@ src/gpudeals/
   cli.py         crawl / watchlist / heartbeat
   shops/         7 парсеров, общий интерфейс SHOP/parse(html)/fetch(client)
   shops/paging.py  new_offers(): один identity — одно наблюдение за обход
-tests/           167 тестов на сохранённых фикстурах (сеть не нужна)
+tests/           181 тест на сохранённых фикстурах (сеть не нужна)
 deploy/          systemd-юниты для VPS (не используются, пока живём на Actions)
-.github/workflows/  crawl (2ч), watchlist (20мин), heartbeat (03:00 UTC), digest (пн 04:00 UTC), tests, benchmarks
+.github/workflows/  crawl (2ч), catchup (ежечасно, если база старше 4ч), watchlist (20мин),
+                  heartbeat (03:00 UTC), digest (пн 04:00 UTC), dashboard (пн 04:10 UTC),
+                  tests, benchmarks
 ```
 
 Роли магазинов: `ALERT_SOURCE = False` у kaspi и e-katalog — они эталоны рынка
@@ -325,9 +327,30 @@ sulpak, отдающий последнюю страницу вместо пус
   `format_rating()` в report.py печатает строку «Балл PassMark: … (N-е из M
   десктопных RTX/RX), в X раз быстрее вашей RTX 2070 SUPER»; карта владельца —
   `owner_gpu_class_key`/`owner_gpu_name` в config.py. Сломанный справочник не
-  роняет уведомление — строка просто не показывается. Покрытие последнего
-  обхода: 25 из 27 классов (без рейтинга остаются рабочие RTX 5000/Quadro
-  варианты — чип неразличим).
+  роняет уведомление — строка просто не показывается.
+- **Шпаргалка, ресток, минимумы месяца, catch-up, бэктест, дашборд** (всё
+  добавлено 2026-09-06):
+  - heartbeat, помимо строки о живости, присылает шпаргалку покупателя:
+    лучшая цена сейчас по каждому интересному классу (`storage.
+    class_best_offers`) и положение относительно `target_price` — «✓» или
+    «до цели N ₸»;
+  - сигнал `Signal.RESTOCK` «в наличие»: позиция вернулась на витрину по цене
+    ≤ цели. Прошлый алерт мог быть дешевле, и is_new_low подавил бы ресток —
+    в crawler он обходит дедупликацию (`restocked` в гейте);
+  - в дайджест добавлены «Минимумы за месяц наблюдений» (окно 30 дней,
+    MIN по классу с «голой» колонкой shop);
+  - `catchup.yml` ежечасно проверяет свежесть базы и запускает полный обход,
+    если последний старше 4 часов (`crawl --if-stale-hours 4`); concurrency-
+    группа `crawl` — с основным обходом не пересекается. Страховка от того,
+    что Actions задерживает и отбрасывает cron-запуски;
+  - `gpudeals/backtest.py` (`python -m gpudeals.backtest`) — прогон порогов по
+    истории: счётчик алертов по сетке «упало»/«дешевле аналогов» с симуляцией
+    дедупликации is_new_low (без неё числа в разы выше реальности — позиция
+    ниже медианы стреляет каждый день);
+  - `dashboard.yml` + `gpudeals/dashboard.py` + команда `render-dashboard`:
+    еженедельная статическая страница на GitHub Pages (инлайн-SVG графики
+    медиан за 30 дней, минимумы, лидеры по баллу; без внешних библиотек).
+    Pages включён через API (build_type=workflow).
 - **technodom `_MAX_PAGES` 9 → 10**: категория компьютеров отдаёт 10 страниц,
   одна страница сборок терялась.
 - Мелочи: убран дублирующийся `import re` в `ekatalog.py`, удалена неиспользуемая

@@ -65,7 +65,8 @@ class TelegramNotifier:
     def send(
         self, text: str, buttons: list[list[tuple[str, str]]] | None = None
     ) -> None:
-        for index, chunk in enumerate(split_message(text)):
+        chunks = split_message(text)
+        for index, chunk in enumerate(chunks):
             if index:
                 time.sleep(_SEND_INTERVAL_S)
             payload: dict = {

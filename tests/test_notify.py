@@ -49,3 +49,50 @@ def test_cold_start_digest_fits_after_split() -> None:
     chunks = split_message(digest)
     assert len(chunks) >= 25
     assert all(len(chunk) <= TELEGRAM_MAX_CHARS for chunk in chunks)
+
+
+def test_telegram_buttons_go_to_last_chunk_only(monkeypatch) -> None:
+    """Кнопки вешаются на последний кусок: ссылка относится к находке в его
+    конце. Ошибка «chunks is not defined» уронила боевой обход на Actions —
+    этот тест защищает отправку с кнопками от регрессии."""
+    posted: list[dict] = []
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "gpudeals.notify.httpx.post",
+        lambda url, json, timeout: posted.append(json) or FakeResponse(),
+    )
+
+    notifier = TelegramNotifier("token", "chat")
+    long_text = "\n".join(f"строка {i}" for i in range(700))
+    buttons = [[("Открыть в dns", "https://dns/p/x")]]
+
+    notifier.send(long_text, buttons=buttons)
+
+    assert len(posted) > 1
+    assert all("reply_markup" not in payload for payload in posted[:-1])
+    assert posted[-1]["reply_markup"] == {
+        "inline_keyboard": [[{"text": "Открыть в dns", "url": "https://dns/p/x"}]]
+    }
+
+
+def test_telegram_without_buttons_sends_plain_payload(monkeypatch) -> None:
+    posted: list[dict] = []
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "gpudeals.notify.httpx.post",
+        lambda url, json, timeout: posted.append(json) or FakeResponse(),
+    )
+
+    notifier = TelegramNotifier("token", "chat")
+    notifier.send("обычное сообщение")
+
+    assert len(posted) == 1
+    assert "reply_markup" not in posted[0]

@@ -44,8 +44,8 @@ _PAGE = """
 <a href="gpu.php?gpu=Quadro+RTX+5000&amp;id=4300">
 <span class="prdname" >Quadro RTX 5000</span>
 <span class="count">15,302</span>
-<a href="gpu.php?gpu=GeForce+RTX+2070&amp;id=4115">
-<span class="prdname" >GeForce RTX 2070</span>
+<a href="gpu.php?gpu=GeForce+RTX+2070+SUPER&amp;id=4116">
+<span class="prdname" >GeForce RTX 2070 SUPER</span>
 <span class="count">18,122</span>
 <a href="gpu.php?gpu=Unknown+Thing&amp;id=1">
 <span class="prdname" >Unknown Thing</span>
@@ -79,7 +79,7 @@ def test_parse_keeps_order_and_drops_laptops() -> None:
         "GeForce RTX 5060 Ti 16GB",
         "RTX 5000 Ada Generation",
         "Quadro RTX 5000",
-        "GeForce RTX 2070",
+        "GeForce RTX 2070 SUPER",
     ]
     # Порядок следования = рейтинг.
     assert [r.rank for r in ratings] == [1, 2, 3, 4, 5, 6]
@@ -116,13 +116,13 @@ def test_missing_chip_has_no_rating(reference) -> None:
 
 
 def test_owner_comparison_faster_and_slower(reference) -> None:
-    """RTX 5080 против RTX 2070 (18 122): в ~2 раза быстрее."""
+    """RTX 5080 против RTX 2070 SUPER (18 122): в ~2 раза быстрее."""
     line = benchmarks.format_rating("rtx5080-16", "rtx5080")
-    assert "в 2,0 раза быстрее вашей RTX 2070" in line
+    assert "в 2,0 раза быстрее вашей RTX 2070 SUPER" in line
 
     slow = benchmarks.Rating(chip="rtx3050", model_name="GeForce RTX 3050 8GB",
                              g3d=8_523, rank=99, class_key="rtx3050-8")
-    assert "медленнее вашей RTX 2070" in benchmarks._owner_comparison(slow.g3d, benchmarks._owner_rating())
+    assert "медленнее вашей RTX 2070 SUPER" in benchmarks._owner_comparison(slow.g3d, benchmarks._owner_rating())
 
 
 def test_owner_comparison_near_par(reference, monkeypatch) -> None:
@@ -130,7 +130,7 @@ def test_owner_comparison_near_par(reference, monkeypatch) -> None:
 
     par = benchmarks.Rating(chip="rtxxxx", model_name="X", g3d=18_300, rank=99, class_key=None)
     text = benchmarks._owner_comparison(par.g3d, benchmarks._owner_rating())
-    assert "на уровне вашей RTX 2070" in text
+    assert "на уровне вашей RTX 2070 SUPER" in text
 
 
 def test_format_rating_line_shape(reference) -> None:
@@ -154,7 +154,7 @@ def test_report_shows_rating_for_known_card(reference) -> None:
     )
     text = format_offer(Verdict(offer=offer, signals=[(Signal.NEW_IN_BUDGET, "тест")]))
     assert "Балл PassMark: 35 622" in text
-    assert "быстрее вашей RTX 2070" in text
+    assert "быстрее вашей RTX 2070 SUPER" in text
 
 
 def test_report_hides_rating_for_unknown_card(reference) -> None:
@@ -176,5 +176,5 @@ def test_report_hides_rating_for_unknown_card(reference) -> None:
 
 
 def test_owner_gpu_configured() -> None:
-    assert settings.owner_gpu_class_key == "rtx2070"
-    assert settings.owner_gpu_name == "RTX 2070"
+    assert settings.owner_gpu_class_key == "rtx2070super"
+    assert settings.owner_gpu_name == "RTX 2070 SUPER"

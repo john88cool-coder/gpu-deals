@@ -35,6 +35,7 @@ from ..normalize import (
 SHOP = "alfa"
 BASE = "https://alfa.kz"
 CATALOG_URL = f"{BASE}/parts/video-cards/"
+BUILDS_URL = f"{BASE}/parts/computers/"
 
 # Анти-бот Anubis пропускает и обычный headless; задержка — на случай
 # медленного proof-of-work при первом визите.
@@ -57,8 +58,13 @@ def _memory_to_gb(title: str) -> str:
     return _MB_MEMORY.sub(_convert, title)
 
 
-def parse(html: str) -> list[Offer]:
-    """Разбирает отрендеренную страницу каталога alfa.kz."""
+def parse(html: str, builds_only: bool = False) -> list[Offer]:
+    """Разбирает отрендеренную страницу каталога alfa.kz.
+
+    На витрине сборок (`builds_only=True`) всё с чипом — сборка: заголовки
+    вида «PULSER Advanced 383 …» не содержат маркеров сборки, и по ним
+    позиция ушла бы в карты, завысив их медианы.
+    """
     tree = HTMLParser(html)
     offers: list[Offer] = []
     for block in tree.css('div[data-role="product"]'):
@@ -89,10 +95,11 @@ def parse(html: str) -> list[Offer]:
 
         normalized = _memory_to_gb(title)
         memory_gb = extract_memory_gb(normalized, chip)
+        is_build = looks_like_build(normalized) or builds_only
         offers.append(
             Offer(
                 shop=SHOP,
-                kind=ItemKind.BUILD if looks_like_build(normalized) else ItemKind.CARD,
+                kind=ItemKind.BUILD if is_build else ItemKind.CARD,
                 title=title,
                 price=price,
                 url=href if href.startswith("http") else f"{BASE}{href}",
@@ -118,10 +125,7 @@ def _page_url(page: int) -> str:
 
 
 async def fetch(client) -> list[Offer]:
-    """Загружает каталог в headless Chromium и разбирает отрендеренные страницы.
-
-    Параметр `client` не используется (интерфейс общий с httpx-парсерами).
-    """
+    """Видеокарты и готовые сборки (витрина computers) одним обходом."""
     del client  # интерфейс единый с остальными магазинами
 
     try:
@@ -153,6 +157,10 @@ async def fetch(client) -> list[Offer]:
                 except Exception as exc:  # noqa: BLE001 — частичный результат лучше пустого
                     log.warning("alfa: страница %s не загрузилась: %s", page_number, exc)
                     break
+
+            # Готовые сборки: витрина computers, первая страница с запасом.
+            await _goto_with_retry(page, BUILDS_URL)
+            offers.extend(new_offers(parse(await page.content(), builds_only=True), seen))
         finally:
             await browser.close()
     return offers

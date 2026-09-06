@@ -37,6 +37,7 @@ from .paging import new_offers
 SHOP = "halyk"
 BASE = "https://halykmarket.kz"
 CATALOG_URL = f"{BASE}/category/videokarti"
+BUILDS_URL = f"{BASE}/category/sistemnye-bloki"
 
 _PAGE_TIMEOUT_MS = 90_000
 # Раундов прокрутки: каталог подгружается бесконечным скроллом.
@@ -54,8 +55,13 @@ _TITLE_PREFIX = "На страницу продукта "
 _OUT_MARKERS = ("нет в наличии", "под заказ", "ожидается")
 
 
-def parse(html: str) -> list[Offer]:
-    """Разбирает отрендеренную страницу каталога halykmarket."""
+def parse(html: str, builds_only: bool = False) -> list[Offer]:
+    """Разбирает отрендеренную страницу каталога halykmarket.
+
+    На витрине сборок (`builds_only=True`) всё с чипом — сборка: заголовки
+    вида «Системный блок Nomad Game T …» без модели карты маркером не ловятся,
+    но чип извлечь можно — позиция полезна.
+    """
     tree = HTMLParser(html)
     offers: list[Offer] = []
     for card in tree.css("a.h-product-card"):
@@ -78,10 +84,11 @@ def parse(html: str) -> list[Offer]:
         low = card.text(separator=" ").lower()
         in_stock = not any(marker in low for marker in _OUT_MARKERS)
 
+        is_build = looks_like_build(title) or builds_only
         offers.append(
             Offer(
                 shop=SHOP,
-                kind=ItemKind.BUILD if looks_like_build(title) else ItemKind.CARD,
+                kind=ItemKind.BUILD if is_build else ItemKind.CARD,
                 title=title,
                 price=price,
                 url=f"{BASE}{href}" if href.startswith("/") else href,
@@ -97,10 +104,11 @@ def parse(html: str) -> list[Offer]:
 
 
 async def fetch(client) -> list[Offer]:
-    """Загружает каталог полным Chromium (channel="chromium") и скроллит,
-    пока появляются новые карточки.
+    """Видеокарты и готовые сборки (витрина sistemnye-bloki) одним обходом.
 
-    Параметр `client` не используется (интерфейс общий с httpx-парсерами).
+    Загружает каталог полным Chromium (channel="chromium") и скроллит,
+    пока появляются новые карточки. Параметр `client` не используется
+    (интерфейс общий с httpx-парсерами).
     """
     del client  # интерфейс единый с остальными магазинами
 
@@ -148,6 +156,13 @@ async def fetch(client) -> list[Offer]:
                         break
                 else:
                     stale_rounds = 0
+
+            # Витрина сборок: та же разметка, принудительный kind=BUILD.
+            await page.goto(BUILDS_URL, timeout=_PAGE_TIMEOUT_MS,
+                            wait_until="domcontentloaded")
+            await page.wait_for_selector("a.h-product-card", timeout=_PAGE_TIMEOUT_MS)
+            await asyncio.sleep(5)
+            offers.extend(new_offers(parse(await page.content(), builds_only=True), seen))
         finally:
             await browser.close()
     return offers

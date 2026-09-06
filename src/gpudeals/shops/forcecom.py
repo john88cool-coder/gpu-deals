@@ -27,6 +27,8 @@ from .paging import new_offers
 SHOP = "forcecom"
 BASE = "https://forcecom.kz"
 CATALOG_URL = f"{BASE}/catalog/graphics-cards/"
+# Готовые сборки: отдельная витрина «Системные блоки».
+BUILDS_URL = f"{BASE}/catalog/desktops/"
 
 # robots.txt просит Crawl-delay: 5 — выдерживаем не меньше.
 CRAWL_DELAY = 5.0
@@ -42,7 +44,7 @@ def _int_from_text(text: str | None) -> int | None:
     return int(digits) if digits else None
 
 
-def parse(html: str) -> list[Offer]:
+def parse(html: str, builds_only: bool = False) -> list[Offer]:
     tree = HTMLParser(html)
     offers: list[Offer] = []
 
@@ -80,10 +82,14 @@ def parse(html: str) -> list[Offer]:
         out_markers = ("нет в наличии", "под заказ", "ожидается", "outstock", "underorder")
         in_stock = not any(m in marker for m in out_markers)
 
+        # На витрине сборок всё с чипом — сборка (заголовки вида «Системный
+        # блок …» маркер и так ловят, но принудительный kind надёжнее).
+        is_build = looks_like_build(title) or builds_only
+
         offers.append(
             Offer(
                 shop=SHOP,
-                kind=ItemKind.BUILD if looks_like_build(title) else ItemKind.CARD,
+                kind=ItemKind.BUILD if is_build else ItemKind.CARD,
                 title=title,
                 price=price,
                 url=f"{BASE}{href}" if href else CATALOG_URL,
@@ -109,6 +115,7 @@ def total_pages(html: str) -> int:
 
 
 async def fetch(client) -> list[Offer]:
+    """Видеокарты и готовые сборки (витрина desktops) одним обходом."""
     response = await client.get(CATALOG_URL)
     response.raise_for_status()
 
@@ -128,4 +135,20 @@ async def fetch(client) -> list[Offer]:
             log.warning("forcecom: страница %s не загрузилась: %s", page, exc)
             break
         offers.extend(new_offers(parse(extra.text), seen))
+
+    # Готовые сборки: витрина desktops, первые страницы с запасом.
+    builds_response = await client.get(BUILDS_URL)
+    builds_response.raise_for_status()
+    offers.extend(new_offers(parse(builds_response.text, builds_only=True), seen))
+    build_pages = min(total_pages(builds_response.text), 5)
+    for page in range(2, build_pages + 1):
+        await asyncio.sleep(CRAWL_DELAY)
+        try:
+            extra = await client.get(BUILDS_URL, params={"PAGEN_1": page})
+            extra.raise_for_status()
+            offers.extend(new_offers(parse(extra.text, builds_only=True), seen))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("forcecom: страница сборок %s не загрузилась: %s", page, exc)
+            break
+
     return offers

@@ -122,14 +122,16 @@ def class_prices(
 ) -> list[int]:
     """Свежие цены по классу для медианы. Раздельно по типу товара.
 
-    `exclude_identity` убирает из выборки саму оцениваемую позицию: её прошлые
-    наблюдения — не «аналоги». Иначе упавшая в цене карта сравнивалась бы со
-    своей же прежней ценой, и падение выглядело бы выгоднее, чем оно есть.
+    Только позиции в наличии: цена товара «под заказ» — не рыночная цена,
+    и она занижала бы медиану. `exclude_identity` убирает из выборки саму
+    оцениваемую позицию: её прошлые наблюдения — не «аналоги». Иначе упавшая
+    в цене карта сравнивалась бы со своей же прежней ценой, и падение
+    выглядело бы выгоднее, чем оно есть.
     """
     since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
     cur = conn.execute(
         """SELECT identity, MIN(price) AS price FROM observations
-           WHERE kind = ? AND class_key = ? AND observed_at >= ?
+           WHERE kind = ? AND class_key = ? AND observed_at >= ? AND in_stock = 1
                  AND (? IS NULL OR identity <> ?)
            GROUP BY identity""",
         (kind.value, class_key, since, exclude_identity, exclude_identity),
@@ -142,13 +144,16 @@ def class_floor_for_cards(
 ) -> dict[str, int]:
     """Минимальная цена отдельной карты по каждому классу, по всем магазинам.
 
-    База для остатка за платформу у сборок: сравнивать надо с рыночным минимумом,
-    а не с ценой того же магазина, иначе остаток завышается.
+    Только в наличии: остаток за платформу считается от цены, за которую карту
+    реально можно взять сейчас. База для остатка за платформу у сборок:
+    сравнивать надо с рыночным минимумом, а не с ценой того же магазина, иначе
+    остаток завышается.
     """
     since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
     cur = conn.execute(
         """SELECT class_key, MIN(price) AS floor FROM observations
            WHERE kind = ? AND class_key IS NOT NULL AND observed_at >= ?
+                 AND in_stock = 1
            GROUP BY class_key""",
         (ItemKind.CARD.value, since),
     )

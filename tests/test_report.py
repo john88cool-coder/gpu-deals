@@ -125,6 +125,7 @@ def test_shop_text_is_escaped_for_html_mode() -> None:
             title="Видеокарта ASUS <ROG> Strix & TUF 16GB",
             url="https://shop.kz/offer/x?a=1&b=2",
             stock_note="под заказ <7 дней>",
+            in_stock=False,
             part_number=None,
         ),
         signals=[(Signal.NEW_IN_BUDGET, "тест")],

@@ -21,6 +21,7 @@ class Signal(str, Enum):
     PRICE_DROP = "упало"
     BELOW_CLASS = "дешевле аналогов"
     NEW_IN_BUDGET = "новинка в бюджете"
+    TARGET_PRICE = "целевая цена"
 
 
 @dataclass
@@ -33,10 +34,18 @@ class Verdict:
     over_budget_by: int | None = None
     perf_vs_class_pct: float | None = None
     build_residual: int | None = None
+    # Где та же категория карт стоит дешевле, если дешевле: (магазин, цена).
+    cheaper_elsewhere: tuple[str, int] | None = None
+    # Ни один другой магазин не предлагает этот класс дешевле.
+    lowest_in_market: bool = False
 
     @property
     def should_alert(self) -> bool:
         return bool(self.signals)
+
+
+def _tenge(value: int) -> str:
+    return f"{value:,}".replace(",", " ") + " ₸"
 
 
 def _expected_by_trend(history: list[tuple[str, int]]) -> int | None:
@@ -55,11 +64,15 @@ def evaluate(
     offer: Offer,
     thresholds: Thresholds,
     card_price_floor: dict[str, int] | None = None,
+    shop_minima: dict[tuple[ItemKind, str], dict[str, int]] | None = None,
+    watch_targets: dict[str, int] | None = None,
 ) -> Verdict:
     """Оценивает предложение против истории и рынка.
 
     `card_price_floor` — минимум по классу для отдельных карт; нужен, чтобы
-    посчитать остаток за платформу у готовой сборки.
+    посчитать остаток за платформу у готовой сборки. `shop_minima` — минимум
+    (тип, класс) по каждому магазину из текущего цикла, для строки «Дешевле
+    сейчас». `watch_targets` — целевые цены владельца по классам из watchlist.
     """
     verdict = Verdict(offer=offer, signals=[])
     budget = (
@@ -77,7 +90,7 @@ def evaluate(
                     verdict.signals.append((
                         Signal.PRICE_DROP,
                         f"на {delta_pct:.0f}% ниже обычной цены этой модели "
-                        f"({expected:,} ₸ за {thresholds.trend_window_days} дн.)".replace(",", " "),
+                        f"({_tenge(expected)} за {thresholds.trend_window_days} дн.)",
                     ))
 
     # Сигнал «дешевле аналогов»: медиана по классу, раздельно по типу товара.
@@ -98,7 +111,7 @@ def evaluate(
                 verdict.signals.append((
                     Signal.BELOW_CLASS,
                     f"на {delta_pct:.0f}% дешевле медианы класса "
-                    f"({class_med:,} ₸){approx}".replace(",", " "),
+                    f"({_tenge(class_med)}){approx}",
                 ))
 
     # Сигнал «новинка в бюджете»: позиция впервые оказалась под потолком.
@@ -106,8 +119,32 @@ def evaluate(
         if not price_history(conn, offer.identity, thresholds.trend_window_days):
             verdict.signals.append((
                 Signal.NEW_IN_BUDGET,
-                f"новая позиция в бюджете (≤ {budget:,} ₸)".replace(",", " "),
+                f"новая позиция в бюджете (≤ {_tenge(budget)})",
             ))
+
+    # Сигнал «целевая цена»: владелец назвал сумму, при которой берёт эту
+    # модель. Медианы и тренды ни при чём — цена дошла до цели, надо брать.
+    target = (watch_targets or {}).get(offer.class_key or "")
+    if target and offer.price <= target:
+        verdict.signals.append((
+            Signal.TARGET_PRICE,
+            f"цена дошла до цели: {_tenge(offer.price)} (цель {_tenge(target)})",
+        ))
+
+    # Сравнение с другими магазинами: тот же тип товара и класс в текущем
+    # цикле — сборки со сборками, карты с картами.
+    if offer.class_key and shop_minima:
+        others = {
+            shop: price
+            for shop, price in shop_minima.get((offer.kind, offer.class_key), {}).items()
+            if shop != offer.shop
+        }
+        if others:
+            best_shop, best_price = min(others.items(), key=lambda item: item[1])
+            if best_price < offer.price:
+                verdict.cheaper_elsewhere = (best_shop, best_price)
+            else:
+                verdict.lowest_in_market = True
 
     # Мягкий потолок на карту: выше — не молчим, а помечаем превышение.
     if offer.price > budget:

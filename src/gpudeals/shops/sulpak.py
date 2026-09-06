@@ -60,6 +60,16 @@ def parse(html: str) -> list[Offer]:
         link = node.css_first("a[href]")
         href = link.attributes.get("href") if link else None
 
+        # Статус наличия в плитке: «Есть в наличии», «Мало», «Нет в наличии»,
+        # «Под заказ». Позитив по умолчанию: если вёрстка сменит подписи,
+        # алерты не должны замолчать — потеряем только строку наличия.
+        status_node = node.css_first(".product__item-showcase")
+        status = status_node.text(strip=True) if status_node else ""
+        low = status.lower()
+        out_markers = ("нет в наличии", "под заказ", "ожидается")
+        in_stock = not any(marker in low for marker in out_markers)
+
+        memory_gb = extract_memory_gb(title, chip)
         offers.append(
             Offer(
                 shop=SHOP,
@@ -67,13 +77,14 @@ def parse(html: str) -> list[Offer]:
                 title=title,
                 price=price,
                 url=f"{BASE}{href}" if href else CATALOG_URL,
-                class_key=class_key(chip, extract_memory_gb(title, chip)),
+                class_key=class_key(chip, memory_gb),
                 part_number=extract_part_number(title),
                 chip=chip,
-                memory_gb=extract_memory_gb(title, chip),
+                memory_gb=memory_gb,
                 brand=node.attributes.get("data-brand") or extract_brand(title),
                 # Старой цены в плитке нет: поле остаётся пустым, а не нулём.
-                in_stock=True,
+                in_stock=in_stock,
+                stock_note=status or None,
                 sku=node.attributes.get("data-code"),
             )
         )

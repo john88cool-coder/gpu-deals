@@ -69,6 +69,17 @@ def parse(html: str) -> list[Offer]:
         href = link.attributes.get("href") if link else None
         memory_gb = extract_memory_gb(title, chip)
 
+        # Статус наличия — span.js-replace-status («instock» / «Нет в наличии»).
+        # Позитив по умолчанию: живого примера отсутствия в категории карт пока
+        # не встречалось, и если классы сменятся, алерты не должны замолчать.
+        status_node = block.css_first('[class*="js-replace-status"]')
+        status = status_node.text(strip=True) if status_node else ""
+        marker = status.lower()
+        if status_node:
+            marker += " " + (status_node.attributes.get("class") or "").lower()
+        out_markers = ("нет в наличии", "под заказ", "ожидается", "outstock", "underorder")
+        in_stock = not any(m in marker for m in out_markers)
+
         offers.append(
             Offer(
                 shop=SHOP,
@@ -82,7 +93,8 @@ def parse(html: str) -> list[Offer]:
                 memory_gb=memory_gb,
                 brand=extract_brand(title),
                 # PRICEOLD в листинге всегда null — старой цены магазин не отдаёт.
-                in_stock=True,
+                in_stock=in_stock,
+                stock_note=status or None,
             )
         )
     return offers

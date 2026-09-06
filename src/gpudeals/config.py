@@ -52,11 +52,15 @@ class WatchedModel:
     """Модель для частой проверки.
 
     `query` — текст запроса для магазинов с поиском (Kaspi), `class_key` — ключ
-    класса для фильтрации каталогов, которые отдаются целиком.
+    класса для фильтрации каталогов, которые отдаются целиком. `target_price` —
+    личная цель владельца: цена опустилась до неё — алерт независимо от медиан
+    и трендов. Дефолты — уровни лучших цен, которые мы видели; правятся под
+    свою готовность покупать.
     """
 
     query: str
     class_key: str
+    target_price: int | None = None
 
 
 @dataclass(frozen=True)
@@ -64,13 +68,14 @@ class Settings:
     thresholds: Thresholds = field(default_factory=Thresholds)
     telegram_token: str | None = os.environ.get("TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str | None = os.environ.get("TELEGRAM_CHAT_ID")
-    # Модели для частой проверки (каждые 15-20 минут).
+    # Модели для частой проверки (каждые 15-20 минут). Цели — уровни лучших
+    # цен, что мы видели на рынке: дошли — пора брать. Правятся под себя.
     watchlist: tuple[WatchedModel, ...] = (
-        WatchedModel("RTX 5060 Ti 16", "rtx5060ti-16"),
-        WatchedModel("RTX 5070 12", "rtx5070-12"),
-        WatchedModel("RTX 5070 Ti 16", "rtx5070ti-16"),
+        WatchedModel("RTX 5060 Ti 16", "rtx5060ti-16", target_price=320_000),
+        WatchedModel("RTX 5070 12", "rtx5070-12", target_price=365_000),
+        WatchedModel("RTX 5070 Ti 16", "rtx5070ti-16", target_price=525_000),
         WatchedModel("RX 9070", "rx9070-16"),
-        WatchedModel("RX 9070 XT", "rx9070xt-16"),
+        WatchedModel("RX 9070 XT", "rx9070xt-16", target_price=450_000),
     )
     request_timeout: float = 25.0
     user_agent: str = (

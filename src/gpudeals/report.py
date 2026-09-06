@@ -66,6 +66,17 @@ def format_offer(verdict: Verdict) -> str:
     if rating_line := benchmarks.format_rating(offer.class_key, offer.chip):
         lines.append(rating_line)
 
+    # Кросс-магазинное сравнение из текущего цикла: главный вопрос после
+    # «выгодно ли» — «где сейчас брать».
+    if verdict.cheaper_elsewhere:
+        shop, price = verdict.cheaper_elsewhere
+        lines.append(
+            f"Дешевле сейчас: {_text(shop)} — {_money(price)} "
+            f"(−{_money(offer.price - price)})"
+        )
+    elif verdict.lowest_in_market:
+        lines.append("Самая низкая цена среди магазинов")
+
     if verdict.build_residual is not None:
         lines.append(
             f"Остаток за платформу: {_money(verdict.build_residual)} "
@@ -81,7 +92,9 @@ def format_offer(verdict: Verdict) -> str:
     if verdict.over_budget_by:
         lines.append(f"⚠ Выше бюджета на {_money(verdict.over_budget_by)}")
 
-    if not offer.in_stock or offer.stock_note:
+    # Строка наличия нужна только когда товара нет: «В наличии» в каждом
+    # сообщении — шум, а такие алерты и так не отправляются.
+    if not offer.in_stock:
         lines.append(f"Наличие: {_text(offer.stock_note or 'нет в наличии')}")
 
     # У сборок партномера не бывает по определению, поэтому пометка о

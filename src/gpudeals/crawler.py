@@ -105,6 +105,29 @@ async def crawl(
             if offers and not is_alert_source(targets[shop_name]):
                 save_observations(conn, offers)
 
+        # Минимумы (тип товара, класс) по магазинам из текущего цикла — база
+        # строки «Дешевле сейчас». Только свежие офферы, без базы: цена
+        # трёхдневной давности отвечает на вопрос «где было дешевле», а не
+        # «где дешевле сейчас». Сборки сравниваются со сборками, карты —
+        # с картами: сборка всегда «дешевле» голой карты, и без раздельного
+        # учёта строка бессмысленна. Магазины цикла ещё не сохранены,
+        # поэтому минимум собираем в памяти.
+        shop_minima: dict[tuple[ItemKind, str], dict[str, int]] = {}
+        for _, offers, _ in results:
+            for offer in offers:
+                if offer.class_key and offer.in_stock:
+                    per_shop = shop_minima.setdefault((offer.kind, offer.class_key), {})
+                    if offer.shop not in per_shop or offer.price < per_shop[offer.shop]:
+                        per_shop[offer.shop] = offer.price
+
+        # Целевые цены владельца по классам watchlist: цена дошла до цели —
+        # алерт независимо от медиан и трендов.
+        watch_targets = {
+            model.class_key: model.target_price
+            for model in config.watchlist
+            if model.target_price is not None
+        }
+
         for shop_name, offers, _ in results:
             if not offers or not is_alert_source(targets[shop_name]):
                 continue
@@ -121,7 +144,13 @@ async def crawl(
 
             shop_findings: list[Verdict] = []
             for offer in offers:
-                verdict = evaluate(conn, offer, config.thresholds, card_floor)
+                # Отсутствующие товары пишутся в базу, но не будят: алерт «на
+                # самом деле этого товара нет» — не находка.
+                if not offer.in_stock:
+                    continue
+                verdict = evaluate(
+                    conn, offer, config.thresholds, card_floor, shop_minima, watch_targets
+                )
                 if verdict.should_alert and is_new_low(conn, offer):
                     verdict.perf_vs_class_pct = benchmarks.relative_value_pct(
                         offer.chip, offer.price, verdict.class_median

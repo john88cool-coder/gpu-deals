@@ -43,9 +43,15 @@ def split_message(text: str, limit: int = TELEGRAM_MAX_CHARS) -> list[str]:
 
 
 class Notifier(Protocol):
-    """Канал доставки уведомлений."""
+    """Канал доставки уведомлений.
 
-    def send(self, text: str) -> None: ...
+    `buttons` — строки inline-кнопок с ссылками (текст, url); каналы без
+    поддержки кнопок (консоль) их игнорируют.
+    """
+
+    def send(
+        self, text: str, buttons: list[list[tuple[str, str]]] | None = None
+    ) -> None: ...
 
 
 class TelegramNotifier:
@@ -56,25 +62,39 @@ class TelegramNotifier:
         self._chat_id = chat_id
         self._timeout = timeout
 
-    def send(self, text: str) -> None:
+    def send(
+        self, text: str, buttons: list[list[tuple[str, str]]] | None = None
+    ) -> None:
         for index, chunk in enumerate(split_message(text)):
             if index:
                 time.sleep(_SEND_INTERVAL_S)
-            response = httpx.post(
-                self._url,
-                json={
-                    "chat_id": self._chat_id,
-                    "text": chunk,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                },
-                timeout=self._timeout,
-            )
+            payload: dict = {
+                "chat_id": self._chat_id,
+                "text": chunk,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }
+            # Кнопки имеет смысл вешать только на последний кусок: текст мог
+            # разрезаться, а ссылка относится к находке в его конце.
+            if buttons and index == len(chunks) - 1:
+                payload["reply_markup"] = {
+                    "inline_keyboard": [
+                        [{"text": label, "url": url} for label, url in row]
+                        for row in buttons
+                    ]
+                }
+            response = httpx.post(self._url, json=payload, timeout=self._timeout)
             response.raise_for_status()
 
 
 class ConsoleNotifier:
     """Вывод в stdout — для отладки без токена."""
 
-    def send(self, text: str) -> None:
+    def send(
+        self, text: str, buttons: list[list[tuple[str, str]]] | None = None
+    ) -> None:
         print(text)
+        if buttons:
+            for row in buttons:
+                for label, url in row:
+                    print(f"[кнопка] {label} -> {url}")

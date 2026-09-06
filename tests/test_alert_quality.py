@@ -161,9 +161,14 @@ def test_cheaper_elsewhere_points_to_other_shop(conn) -> None:
 
     verdict = evaluate(
         conn, offer("technodom", 480_000), Thresholds(),
-        shop_minima={(ItemKind.CARD, "rtx5070-12"): {"technodom": 480_000, "dns": 450_000}},
+        shop_minima={
+            (ItemKind.CARD, "rtx5070-12"): {
+                "technodom": (480_000, "https://e.kz/1"),
+                "dns": (450_000, "https://e.kz/2"),
+            }
+        },
     )
-    assert verdict.cheaper_elsewhere == ("dns", 450_000)
+    assert verdict.cheaper_elsewhere == ("dns", 450_000, "https://e.kz/2")
     assert verdict.lowest_in_market is False
 
 
@@ -172,7 +177,12 @@ def test_lowest_in_market_when_nothing_cheaper(conn) -> None:
 
     verdict = evaluate(
         conn, offer("technodom", 440_000), Thresholds(),
-        shop_minima={(ItemKind.CARD, "rtx5070-12"): {"technodom": 440_000, "dns": 500_000}},
+        shop_minima={
+            (ItemKind.CARD, "rtx5070-12"): {
+                "technodom": (440_000, "https://e.kz/1"),
+                "dns": (500_000, "https://e.kz/2"),
+            }
+        },
     )
     assert verdict.cheaper_elsewhere is None
     assert verdict.lowest_in_market is True
@@ -182,7 +192,12 @@ def test_same_shop_offer_is_not_cheaper_elsewhere(conn) -> None:
     """Дубль того же магазина — не «где дешевле», это та же витрина."""
     verdict = evaluate(
         conn, offer("technodom", 480_000), Thresholds(),
-        shop_minima={(ItemKind.CARD, "rtx5070-12"): {"technodom": 450_000, "dns": 500_000}},
+        shop_minima={
+            (ItemKind.CARD, "rtx5070-12"): {
+                "technodom": (450_000, "https://e.kz/1"),
+                "dns": (500_000, "https://e.kz/2"),
+            }
+        },
     )
     assert verdict.cheaper_elsewhere is None
     assert verdict.lowest_in_market is True
@@ -193,13 +208,38 @@ def test_report_shows_cross_shop_lines() -> None:
 
     expensive = Verdict(
         offer=offer("technodom", 480_000), signals=[(Signal.NEW_IN_BUDGET, "тест")],
-        cheaper_elsewhere=("dns", 450_000),
+        cheaper_elsewhere=("dns", 450_000, "https://dns/p/x"),
     )
     assert "Дешевле сейчас: dns — 450 000 ₸ (−30 000 ₸)" in format_offer(expensive)
 
     cheapest = Verdict(offer=offer("dns", 440_000), signals=[(Signal.NEW_IN_BUDGET, "тест")])
     cheapest.lowest_in_market = True
     assert "Самая низкая цена среди магазинов" in format_offer(cheapest)
+
+
+def test_alert_buttons_carry_offer_urls() -> None:
+    """Кнопки дайджеста: строка на находку, плюс кнопка более дешёвого оффера."""
+    from gpudeals.crawler import _alert_buttons
+    from gpudeals.evaluate import Verdict
+
+    expensive = Verdict(
+        offer=offer("technodom", 480_000), signals=[(Signal.NEW_IN_BUDGET, "тест")],
+        cheaper_elsewhere=("dns", 450_000, "https://dns/p/x"),
+    )
+    cheapest = Verdict(offer=offer("dns", 440_000), signals=[(Signal.NEW_IN_BUDGET, "тест")])
+
+    buttons = _alert_buttons([expensive, cheapest])
+    assert buttons == [
+        [("Открыть в technodom", "https://example.kz"),
+         ("Где дешевле: dns", "https://dns/p/x")],
+        [("Открыть в dns", "https://example.kz")],
+    ]
+
+
+def test_alert_buttons_absent_without_findings() -> None:
+    from gpudeals.crawler import _alert_buttons
+
+    assert _alert_buttons([]) is None
 
 
 def test_crawl_overlay_counts_unsaved_shops(tmp_path, monkeypatch) -> None:
@@ -229,7 +269,7 @@ def test_crawl_overlay_counts_unsaved_shops(tmp_path, monkeypatch) -> None:
 
     by_price = {v.offer.price: v for v in findings}
     expensive = by_price[480_000]
-    assert expensive.cheaper_elsewhere == ("shopb", 430_000)
+    assert expensive.cheaper_elsewhere == ("shopb", 430_000, "https://example.kz")
     assert by_price[430_000].lowest_in_market is True
 
 

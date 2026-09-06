@@ -45,8 +45,10 @@ def test_old_price_is_never_populated(cards, builds) -> None:
         assert offer.shop_discount_pct is None
 
 
-def test_kaspi_is_reference_not_alert_source() -> None:
-    assert is_alert_source(kaspi) is False
+def test_kaspi_is_full_alert_source_now() -> None:
+    """С 2026-09-06 Kaspi — источник алертов: сигнал «упало» строится на нашей
+    собственной истории снимков, магазинные старые цены ему не нужны."""
+    assert is_alert_source(kaspi) is True
 
 
 def test_builds_are_detected(builds) -> None:

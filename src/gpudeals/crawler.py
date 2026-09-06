@@ -150,13 +150,14 @@ async def crawl(
         # с картами: сборка всегда «дешевле» голой карты, и без раздельного
         # учёта строка бессмысленна. Магазины цикла ещё не сохранены,
         # поэтому минимум собираем в памяти.
-        shop_minima: dict[tuple[ItemKind, str], dict[str, int]] = {}
+        shop_minima: dict[tuple[ItemKind, str], dict[str, tuple[int, str]]] = {}
         for _, offers, _ in results:
             for offer in offers:
                 if offer.class_key and offer.in_stock:
                     per_shop = shop_minima.setdefault((offer.kind, offer.class_key), {})
-                    if offer.shop not in per_shop or offer.price < per_shop[offer.shop]:
-                        per_shop[offer.shop] = offer.price
+                    known = per_shop.get(offer.shop)
+                    if known is None or offer.price < known[0]:
+                        per_shop[offer.shop] = (offer.price, offer.url)
 
         # Целевые цены владельца по классам watchlist: цена дошла до цели —
         # алерт независимо от медиан и трендов.
@@ -219,6 +220,23 @@ async def crawl(
     return findings, breakages, summary
 
 
+def _alert_buttons(findings: list[Verdict]) -> list[list[tuple[str, str]]] | None:
+    """Inline-кнопки для дайджеста находок: по строке на каждую находку.
+
+    Текст кнопки ограничен 64 символами Telegram, поэтому магазин вместо
+    заголовка: класс и так написан в сообщении над ссылкой.
+    """
+    rows: list[list[tuple[str, str]]] = []
+    for verdict in findings:
+        offer = verdict.offer
+        row = [(f"Открыть в {offer.shop}", offer.url)]
+        if verdict.cheaper_elsewhere:
+            shop, _price, url = verdict.cheaper_elsewhere
+            row.append((f"Где дешевле: {shop}", url))
+        rows.append(row)
+    return rows or None
+
+
 def run_once(
     notifier: Notifier,
     shops: list[str] | None = None,
@@ -234,7 +252,7 @@ def run_once(
         notifier.send(text)
 
     if findings:
-        notifier.send(format_digest(findings))
+        notifier.send(format_digest(findings), buttons=_alert_buttons(findings))
 
     return len(findings)
 

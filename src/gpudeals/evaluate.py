@@ -35,8 +35,9 @@ class Verdict:
     over_budget_by: int | None = None
     perf_vs_class_pct: float | None = None
     build_residual: int | None = None
-    # Где та же категория карт стоит дешевле, если дешевле: (магазин, цена).
-    cheaper_elsewhere: tuple[str, int] | None = None
+    # Где та же категория карт стоит дешевле, если дешевле:
+    # (магазин, цена, ссылка на оффер).
+    cheaper_elsewhere: tuple[str, int, str] | None = None
     # Ни один другой магазин не предлагает этот класс дешевле.
     lowest_in_market: bool = False
 
@@ -147,17 +148,20 @@ def evaluate(
         ))
 
     # Сравнение с другими магазинами: тот же тип товара и класс в текущем
-    # цикле — сборки со сборками, карты с картами.
+    # цикле — сборки со сборками, карты с картами. Ссылка на более дешёвый
+    # оффер идёт в inline-кнопку уведомления.
     if offer.class_key and shop_minima:
         others = {
-            shop: price
-            for shop, price in shop_minima.get((offer.kind, offer.class_key), {}).items()
+            shop: price_url
+            for shop, price_url in shop_minima.get((offer.kind, offer.class_key), {}).items()
             if shop != offer.shop
         }
         if others:
-            best_shop, best_price = min(others.items(), key=lambda item: item[1])
+            best_shop, (best_price, best_url) = min(
+                others.items(), key=lambda item: item[1][0]
+            )
             if best_price < offer.price:
-                verdict.cheaper_elsewhere = (best_shop, best_price)
+                verdict.cheaper_elsewhere = (best_shop, best_price, best_url)
             else:
                 verdict.lowest_in_market = True
 

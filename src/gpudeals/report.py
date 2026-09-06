@@ -105,9 +105,10 @@ def format_offer(verdict: Verdict) -> str:
         lines.append(rating_line)
 
     # Кросс-магазинное сравнение из текущего цикла: главный вопрос после
-    # «выгодно ли» — «где сейчас брать».
+    # «выгодно ли» — «где сейчас брать». Ссылка на более дешёвый оффер —
+    # в inline-кнопке уведомления.
     if verdict.cheaper_elsewhere:
-        shop, price = verdict.cheaper_elsewhere
+        shop, price, _url = verdict.cheaper_elsewhere
         lines.append(
             f"Дешевле сейчас: {_text(shop)} — {_money(price)} "
             f"(−{_money(offer.price - price)})"

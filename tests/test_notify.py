@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gpudeals.notify import TELEGRAM_MAX_CHARS, split_message
+from gpudeals.notify import TELEGRAM_MAX_CHARS, TelegramNotifier, split_message
 
 
 def test_short_text_untouched() -> None:

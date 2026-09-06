@@ -67,6 +67,19 @@ async def crawl(
             for shop, offers, error in results
         ]
 
+    # Сколько позиций парсер отдал на самом деле — до наших фильтров. Таблица
+    # crawls измеряет здоровье парсера: тревога «вернул 0» не должна срабатывать
+    # там, где магазин жив, но весь его ассортимент отфильтрован по объёму.
+    raw_counts = {shop: len(offers) for shop, offers, _ in results}
+
+    # Решение владельца: карта покупается с памятью больше 8 ГБ, позиции с
+    # меньшим объёмом (и сборки с такой картой) не рассматриваются вовсе.
+    skip = config.thresholds.skip_memory_gb
+    results = [
+        (shop, [o for o in offers if o.memory_gb is None or o.memory_gb > skip], error)
+        for shop, offers, error in results
+    ]
+
     findings: list[Verdict] = []
     breakages: list[str] = []
     summary: list[tuple[str, int, bool]] = []
@@ -74,7 +87,7 @@ async def crawl(
     with connect() as conn:
         for shop_name, offers, error in results:
             ok = error is None
-            summary.append((shop_name, len(offers), ok))
+            summary.append((shop_name, raw_counts[shop_name], ok))
 
             if ok and not offers and not watchlist_only:
                 previous = previous_item_count(conn, shop_name)
@@ -84,7 +97,7 @@ async def crawl(
             # В режиме watchlist результат отфильтрован, и его размер нельзя
             # сравнивать с полными обходами — такую запись не ведём.
             if not watchlist_only:
-                record_crawl(conn, shop_name, len(offers), ok, error)
+                record_crawl(conn, shop_name, raw_counts[shop_name], ok, error)
 
         # Эталонные магазины сохраняем первыми: их цены должны попасть в медианы
         # классов и минимумы по картам до того, как оценим остальных.

@@ -8,6 +8,17 @@ User-Agent и браузером страница открывается, поэ
 Раздел уценки `/catalog/markdown/` не парсится: в robots.txt стоит
 `Disallow: /catalog/markdown/*`. Основной каталог разрешён.
 
+Пагинация каталога не работает, проверено вживую 2026-09-06: запрос
+`?page=2` в прогретой сессии отвечает челленджем Cloudflare (HTTP 403), а в
+свежем контексте браузера — HTTP 200 с содержимым ПЕРВОЙ страницы (страницы
+2, 3 и 4 вернули те же 22 позиции, 0 новых). Поэтому берутся первая страница
+каталога плюс страницы-подборки `/catalog/recipe/` — по одной на модель.
+Идентификаторы подборок сняты с живой страницы; если магазин их сменит, новая
+разметка первой страницы снова содержит все ссылки `/catalog/recipe/`.
+
+Каждая загрузка идёт в свежем контексте браузера: в прогретом вторая и дальше
+загрузки ловят челлендж.
+
 Старой цены в листинге DNS нет; наличие берётся из метки «В наличии» /
 «При заказе».
 """
@@ -32,14 +43,31 @@ from .paging import new_offers
 
 SHOP = "dns"
 CATALOG_URL = "https://www.dns-shop.kz/catalog/17a89aab16404e77/videokarty/"
+_BASE = "https://www.dns-shop.kz"
 
-# Страниц в категории ~14; ограничиваем, чтобы обход укладывался в разумное
-# время: каждая страница — это загрузка в браузере.
-_MAX_PAGES = 6
+# Подборки по моделям с памятью больше 8 ГБ — критерий владельца. Список
+# правится вместе с watchlist: подборка есть не у каждой модели (RX 9070
+# отдаёт всего 3 позиции, но они нигде больше не видны).
+_RECIPE_PATHS = (
+    "/catalog/recipe/d6b9917aaa77a744/rtx-5070/",
+    "/catalog/recipe/da6891e61ee3cd67/rtx-5070-ti/",
+    "/catalog/recipe/9dacd3bfb81d51e2/rtx-5080/",
+    "/catalog/recipe/5be4a14632f95207/radeon-rx-9070/",
+    "/catalog/recipe/6bfa24353a43bad5/radeon-rx-9070-xt/",
+    "/catalog/recipe/d161177b7529d899/radeon-rx-9060-xt-16-gb/",
+)
+
 _PAGE_TIMEOUT_MS = 45_000
 _WAIT_PRODUCTS_MS = 25_000
+# Пауза между загрузками: серия быстрых переходов вызывает челлендж.
+_LOAD_DELAY_S = 6.0
 
 log = logging.getLogger(__name__)
+
+
+def recipe_targets() -> list[str]:
+    """URL для обхода: первая страница каталога плюс страницы-подборки."""
+    return [CATALOG_URL] + [f"{_BASE}{path}" for path in _RECIPE_PATHS]
 
 
 def _int_from_text(text: str) -> int | None:
@@ -103,7 +131,7 @@ def total_pages(html: str) -> int:
 
 
 async def fetch(client) -> list[Offer]:
-    """Загружает каталог в headless Chromium и разбирает отрендеренные страницы.
+    """Загружает каталог и подборки в headless Chromium, каждую в новом контексте.
 
     Параметр `client` не используется (интерфейс общий с httpx-парсерами).
     """
@@ -123,30 +151,35 @@ async def fetch(client) -> list[Offer]:
         browser = await p.chromium.launch(headless=True)
         # Служебный User-Agent Playwright («HeadlessChrome») вызывает челлендж;
         # подменяем на обычный.
-        page = await browser.new_page(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            )
-        )
         try:
-            for page_number in range(1, _MAX_PAGES + 1):
-                url = CATALOG_URL if page_number == 1 else f"{CATALOG_URL}?page={page_number}"
+            for url in recipe_targets():
+                # Свежий контекст на каждую загрузку: во втором и дальше
+                # переходах одного контекста DNS отвечает челленджем.
+                context = await browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                    )
+                )
+                page = await context.new_page()
                 try:
                     await _goto_with_retry(page, url)
-                except Exception as exc:  # noqa: BLE001
-                    if page_number == 1:
-                        raise
-                    log.warning("dns: страница %s не загрузилась: %s", page_number, exc)
-                    break
-                rendered = parse(await page.content())
-                found = new_offers(rendered, seen)
-                offers.extend(found)
-                # Страница целиком из уже виденных позиций означает, что каталог
-                # повторяется: дальше идти незачем.
-                if not found or len(rendered) < 12:
-                    break
-                await asyncio.sleep(2.0)
+                    rendered = parse(await page.content())
+                    found = new_offers(rendered, seen)
+                    offers.extend(found)
+                    if url == CATALOG_URL:
+                        pages = total_pages(await page.content())
+                        if pages > 1:
+                            log.info(
+                                "dns: каталог заявляет %s страниц, пагинация недоступна — "
+                                "берём первую страницу и %s подборок",
+                                pages, len(_RECIPE_PATHS),
+                            )
+                except Exception as exc:  # noqa: BLE001 — одна страница не роняет обход
+                    log.warning("dns: %s не загрузилась: %s", url.rsplit("/", 2)[-2], exc)
+                finally:
+                    await context.close()
+                await asyncio.sleep(_LOAD_DELAY_S)
         finally:
             await browser.close()
     return offers

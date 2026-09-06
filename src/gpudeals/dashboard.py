@@ -138,6 +138,34 @@ def render(conn: sqlite3.Connection, out_path) -> int:  # noqa: ANN001 — pathl
     )
 
     generated = datetime.now(UTC).strftime("%d.%m.%Y %H:%M UTC")
+
+    recent_alerts = conn.execute(
+        """SELECT a.alerted_at AS at, a.alerted_price AS price, o.title, o.shop
+           FROM alerts a
+           LEFT JOIN observations o
+                  ON o.identity = a.identity
+                 AND o.observed_at = (
+                     SELECT MAX(observed_at) FROM observations
+                     WHERE identity = a.identity
+                 )
+           ORDER BY a.alerted_at DESC
+           LIMIT 10"""
+    ).fetchall()
+    alert_rows = "".join(
+        f"<tr><td>{_esc(at[:16].replace('T', ' '))}</td>"
+        f"<td>{_esc(title[:60])}</td><td>{_esc(shop)}</td>"
+        f"<td>{_fmt(price)} ₸</td></tr>"
+        for at, price, title, shop in recent_alerts
+    )
+    alerts_section = ""
+    if alert_rows:
+        alerts_section = (
+            "<h2>Последние алерты бота</h2>"
+            "<table><tr><th>Когда</th><th>Модель</th><th>Магазин</th>"
+            "<th>Цена</th></tr>"
+            f"{alert_rows}</table>"
+        )
+
     page = f"""<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -162,6 +190,7 @@ gpu-deals: семь магазинов, обходы по расписанию, 
 <h2>Лидеры по цене за балл PassMark</h2>
 <table><tr><th>Модель</th><th>Магазин</th><th>Цена</th><th>₸/балл</th></tr>
 {leader_rows}</table>
+{alerts_section}
 <footer>Сгенерировано {generated} · обновляется еженедельно</footer>
 </body></html>"""
 

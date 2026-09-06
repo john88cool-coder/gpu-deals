@@ -104,3 +104,31 @@ def test_heartbeat_without_offers_skips_guide(db) -> None:
 
     assert len(notifier.sent) == 1
     assert "Шпаргалка" not in notifier.sent[0]
+
+
+def test_heartbeat_includes_best_build_by_residual(db) -> None:
+    """Шпаргалка показывает и лучшую сборку: цена минус минимум карты."""
+    with connect(db) as conn:
+        _insert_card(conn, "card", 400_000, "technodom")
+        conn.execute(
+            """INSERT INTO observations (observed_at, shop, kind, identity, title,
+                   price, url, class_key, chip, memory_gb, in_stock)
+               VALUES (datetime('now'), 'technodom', 'build', 'b1',
+                       'Компьютер RTX 5070', 870_000, 'https://e.kz',
+                       'rtx5070-12', 'rtx5070', 12, 1)"""
+        )
+        conn.execute(
+            """INSERT INTO observations (observed_at, shop, kind, identity, title,
+                   price, url, class_key, chip, memory_gb, in_stock)
+               VALUES (datetime('now'), 'technodom', 'build', 'b2',
+                       'Компьютер RTX 5070 дорогой', 990_000, 'https://e.kz',
+                       'rtx5070-12', 'rtx5070', 12, 1)"""
+        )
+
+    notifier = RecordingNotifier()
+    crawler.send_heartbeat(notifier, shops=["technodom"])
+
+    text = notifier.sent[0]
+    assert "Сборка rtx5070-12: 870 000 ₸ (technodom) — остаток за платформу 470 000 ₸" in text
+    # Дорогая сборка того же класса в шпаргалку не попала.
+    assert "990 000" not in text

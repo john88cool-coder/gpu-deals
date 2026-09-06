@@ -194,6 +194,49 @@ def last_in_stock(conn: sqlite3.Connection, identity: str) -> bool | None:
     return None if row is None else bool(row["in_stock"])
 
 
+def best_build_residual(
+    conn: sqlite3.Connection,
+    floors: dict[str, int],
+    budget: int,
+    chips: frozenset[str] | None = None,
+    skip_memory_gb: int | None = None,
+    window_days: int = 3,
+) -> tuple[str, int, str, int] | None:
+    """Сборка с наименьшим остатком за платформу: (класс, цена, магазин, остаток).
+
+    Остаток = цена сборки минус минимум за такую же карту отдельным товаром
+    (`floors` из `class_floor_for_cards`). Сборки без карты в базе остаток
+    не имеют и не участвуют. Только в наличии и не дороже бюджета. Если
+    переданы `chips` и `skip_memory_gb`, применяются и фильтры интересов
+    владельца: сборка со старой картой не должна становиться «лучшей».
+    """
+    since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
+    interest = ""
+    params: list = [budget]
+    if chips is not None:
+        chips_q = ",".join("?" * len(chips))
+        interest = f" AND chip IN ({chips_q}) AND (memory_gb IS NULL OR memory_gb > ?)"
+        params.extend(sorted(chips))
+        params.append(skip_memory_gb)
+    params.append(since)
+    best: tuple[str, int, str, int] | None = None
+    for row in conn.execute(
+        f"""SELECT class_key, MIN(price) AS price, shop
+            FROM observations
+            WHERE kind = 'build' AND in_stock = 1 AND price <= ?{interest}
+                  AND observed_at >= ?
+            GROUP BY class_key""",
+        params,
+    ):
+        floor = floors.get(row["class_key"])
+        if not floor:
+            continue
+        residual = row["price"] - floor
+        if best is None or residual < best[3]:
+            best = (row["class_key"], row["price"], row["shop"], residual)
+    return best
+
+
 def last_alert(conn: sqlite3.Connection, identity: str) -> int | None:
     cur = conn.execute("SELECT alerted_price FROM alerts WHERE identity = ?", (identity,))
     row = cur.fetchone()

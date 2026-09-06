@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpudeals import backtest, crawler
+from gpudeals import backtest, benchmarks, crawler
 from gpudeals.config import Settings, WatchedModel
 from gpudeals.evaluate import Signal, evaluate
 from gpudeals.models import ItemKind, Offer
@@ -118,9 +118,12 @@ def test_digest_monthly_minima_with_shop(tmp_path) -> None:
 
         data = crawler._market_digest(conn)
 
-    assert ("rtx5070-12", 294_590, "sulpak") in data.monthly_minima
+    entry = next(e for e in data.monthly_minima if e[0] == "rtx5070-12")
+    assert entry[1] == 294_590 and entry[2] == "sulpak"
+    # Доля наличия: одна отсутствующая из трёх позиций класса.
+    assert entry[3] == pytest.approx(2 / 3)
     # Отсутствующий товар — не рыночный минимум.
-    assert all(price != 250_000 for _, price, _ in data.monthly_minima)
+    assert all(price != 250_000 for _, price, _, _ in data.monthly_minima)
 
 
 def test_digest_renders_monthly_minima(tmp_path) -> None:
@@ -207,3 +210,45 @@ def test_backtest_counts_fires_and_reports(tmp_path) -> None:
 def test_backtest_on_empty_history(tmp_path) -> None:
     with connect(tmp_path / "db.sqlite3") as conn:
         assert "Истории пока нет" in backtest.run(conn)
+
+
+def test_dashboard_renders_recent_alerts(tmp_path, monkeypatch) -> None:
+    """Дашборд показывает, что бот сообщал за последнее время."""
+    from gpudeals.dashboard import render
+
+    csv_path = tmp_path / "pm.csv"
+    csv_path.write_text(
+        "class_key,chip,model_name,passmark_g3d,desktop_rank\n"
+        "rtx5070-12,rtx5070,GeForce RTX 5070,28648,15\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("gpudeals.benchmarks.BENCHMARKS_CSV", csv_path)
+    benchmarks._ratings.cache_clear()
+
+    db = tmp_path / "db.sqlite3"
+    with connect(db) as conn:
+        insert(conn, "fake:pn:gv-1", 363_990, days_ago=0.1)
+        conn.execute(
+            "INSERT INTO alerts (identity, alerted_at, alerted_price)"
+            " VALUES ('fake:pn:gv-1', '2026-09-06T10:00:00+00:00', 363990)"
+        )
+        out = tmp_path / "site" / "index.html"
+        render(conn, out)
+    benchmarks._ratings.cache_clear()
+
+    html = out.read_text(encoding="utf-8")
+    assert "Последние алерты бота" in html
+    assert "363 990 ₸" in html
+    assert "2026-09-06 10:00" in html
+
+
+def test_dashboard_without_alerts_skips_section(tmp_path) -> None:
+    from gpudeals.dashboard import render
+
+    db = tmp_path / "db.sqlite3"
+    with connect(db) as conn:
+        insert(conn, "fake:pn:gv-1", 363_990, days_ago=0.1)
+        out = tmp_path / "site" / "index.html"
+        render(conn, out)
+
+    assert "Последние алерты бота" not in out.read_text(encoding="utf-8")

@@ -47,7 +47,7 @@
 ```bash
 uv sync --extra dev --extra dns   # зависимости + Playwright
 uv run playwright install chromium
-uv run pytest                      # 181 тест, сеть не нужна
+uv run pytest                      # 186 тестов, сеть не нужна
 uv run gpu-deals crawl --console   # полный обход, вывод в консоль
 ```
 
@@ -126,7 +126,7 @@ src/gpudeals/
   cli.py         crawl / watchlist / heartbeat
   shops/         7 парсеров, общий интерфейс SHOP/parse(html)/fetch(client)
   shops/paging.py  new_offers(): один identity — одно наблюдение за обход
-tests/           181 тест на сохранённых фикстурах (сеть не нужна)
+tests/           186 тестов на сохранённых фикстурах (сеть не нужна)
 deploy/          systemd-юниты для VPS (не используются, пока живём на Actions)
 .github/workflows/  crawl (2ч), catchup (ежечасно, если база старше 4ч), watchlist (20мин),
                   heartbeat (03:00 UTC), digest (пн 04:00 UTC), dashboard (пн 04:10 UTC),
@@ -328,8 +328,8 @@ sulpak, отдающий последнюю страницу вместо пус
   десктопных RTX/RX), в X раз быстрее вашей RTX 2070 SUPER»; карта владельца —
   `owner_gpu_class_key`/`owner_gpu_name` в config.py. Сломанный справочник не
   роняет уведомление — строка просто не показывается.
-- **Шпаргалка, ресток, минимумы месяца, catch-up, бэктест, дашборд** (всё
-  добавлено 2026-09-06):
+- **Шпаргалка, ресток, минимумы месяца, catch-up, бэктест, дашборд, кнопки,
+  Kaspi-алерты** (всё добавлено 2026-09-06):
   - heartbeat, помимо строки о живости, присылает шпаргалку покупателя:
     лучшая цена сейчас по каждому интересному классу (`storage.
     class_best_offers`) и положение относительно `target_price` — «✓» или

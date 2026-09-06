@@ -42,13 +42,14 @@ class MarketDigest:
 
     `medians` — (class_key, медиана текущей недели, медиана предыдущей);
     предыдущая может отсутствовать — база ещё не копила две недели.
-    `monthly_minima` — (class_key, минимум за 30 дней, магазин).
+    `monthly_minima` — (class_key, минимум за 30 дней, магазин, доля
+    наблюдений в наличии за тот же месяц).
     """
 
     medians: list[tuple[str, int | None, int | None]]
     best_deal: DigestDeal | None
     value_leaders: list[DigestValue]
-    monthly_minima: list[tuple[str, int, str]]
+    monthly_minima: list[tuple[str, int, str, float]]
 
 
 def _money(value: int) -> str:
@@ -170,10 +171,12 @@ def format_breakage(shop: str, previous_count: int) -> str:
 
 
 def format_buyers_guide(
-    offers: list[tuple[str, int, str]], targets: dict[str, int]
+    offers: list[tuple[str, int, str]], targets: dict[str, int],
+    best_build: tuple[str, int, str, int] | None = None,
 ) -> str:
     """Ежедневная шпаргалка покупателя: лучшая цена сейчас по каждому классу
-    и сколько осталось до личной цели."""
+    и сколько осталось до личной цели. Если есть сборки — лучшая сборка по
+    остатку за платформу."""
     lines = ["<b>── Шпаргалка покупателя ──</b>"]
     for class_key, price, shop in offers:
         line = f"• {class_key}: {_money(price)} ({_text(shop)})"
@@ -183,6 +186,12 @@ def format_buyers_guide(
             else:
                 line += f" — до цели {_money(price - target)}"
         lines.append(line)
+    if best_build is not None:
+        class_key, price, shop, residual = best_build
+        lines.append(
+            f"• Сборка {class_key}: {_money(price)} ({_text(shop)}) — "
+            f"остаток за платформу {_money(residual)}"
+        )
     return "\n".join(lines)
 
 
@@ -250,7 +259,11 @@ def format_market_digest(data: MarketDigest) -> str:
 
     if data.monthly_minima:
         blocks.append("\n<b>── Минимумы за месяц наблюдений ──</b>")
-        for class_key, price, shop in data.monthly_minima:
-            blocks.append(f"• {class_key}: {_money(price)} ({_text(shop)})")
+        for class_key, price, shop, stock_share in data.monthly_minima:
+            share = f"{stock_share * 100:.0f}%"
+            blocks.append(
+                f"• {class_key}: {_money(price)} ({_text(shop)}) · "
+                f"в наличии {share} времени"
+            )
 
     return "\n".join(blocks)

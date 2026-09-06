@@ -26,6 +26,7 @@ from .report import (
 )
 from .shops import REGISTRY, is_alert_source
 from .storage import (
+    best_build_residual,
     class_best_offers,
     class_floor_for_cards,
     compact,
@@ -272,6 +273,13 @@ def send_heartbeat(notifier: Notifier, shops: list[str] | None = None) -> None:
             INTERESTED_CHIPS,
             default_settings.thresholds.skip_memory_gb,
         )
+        build = best_build_residual(
+            conn,
+            class_floor_for_cards(conn),
+            default_settings.thresholds.build_budget,
+            chips=INTERESTED_CHIPS,
+            skip_memory_gb=default_settings.thresholds.skip_memory_gb,
+        )
     targets = {
         model.class_key: model.target_price
         for model in default_settings.watchlist
@@ -283,7 +291,9 @@ def send_heartbeat(notifier: Notifier, shops: list[str] | None = None) -> None:
         order = {ck: i for i, ck in enumerate(default_settings.watched_class_keys)}
         offers = sorted(best.items(), key=lambda item: order.get(item[0], 99))
         text += "\n\n" + format_buyers_guide(
-            [(ck, price, shop) for ck, (shop, price) in offers], targets
+            [(ck, price, shop) for ck, (shop, price) in offers],
+            targets,
+            best_build=build,
         )
     notifier.send(text)
 
@@ -428,18 +438,36 @@ def _market_digest(conn) -> MarketDigest:
     value_leaders = sorted(candidates, key=lambda v: v.per_point)[:_DIGEST_TOP_VALUE]
 
     # Минимумы за месяц наблюдений: ориентир «ниже пока не бывало». Окно —
-    # весь удерживаемый практикой месяц; та же фильтрация интересов.
+    # весь удерживаемый практикой месяц; та же фильтрация интересов. Рядом —
+    # доля наблюдений в наличии: дефицитная карта по хорошей цене аргумент
+    # не откладывать. Доля считается по всем строкам класса, минимум — только
+    # по позициям в наличии, поэтому два запроса.
     cut30 = (now - timedelta(days=30)).isoformat(timespec="seconds")
-    monthly_minima = [
-        (row["class_key"], row["price"], row["shop"])
+    minima: dict[str, tuple[int, str]] = {}
+    for row in conn.execute(
+        f"""SELECT class_key, MIN(price) AS price, shop
+            FROM observations
+            WHERE kind = 'card' AND in_stock = 1 AND {interest_filter}
+                  AND class_key IS NOT NULL AND observed_at >= ?
+            GROUP BY class_key""",
+        (*interest_params, cut30),
+    ):
+        minima[row["class_key"]] = (row["price"], row["shop"])
+
+    stock_share: dict[str, float] = {
+        row["class_key"]: row["share"]
         for row in conn.execute(
-            f"""SELECT class_key, MIN(price) AS price, shop
+            f"""SELECT class_key, AVG(in_stock) AS share
                 FROM observations
-                WHERE kind = 'card' AND in_stock = 1 AND {interest_filter}
+                WHERE kind = 'card' AND {interest_filter}
                       AND class_key IS NOT NULL AND observed_at >= ?
                 GROUP BY class_key""",
             (*interest_params, cut30),
         )
+    }
+    monthly_minima = [
+        (class_key, price, shop, stock_share.get(class_key, 1.0))
+        for class_key, (price, shop) in minima.items()
     ]
 
     return MarketDigest(

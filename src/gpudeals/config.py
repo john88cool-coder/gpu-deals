@@ -77,6 +77,11 @@ class Settings:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
+    # Текущая карта владельца — для строки «в 1,6 раза быстрее вашей RTX 2070»
+    # в уведомлении. class_key карты и её читаемое имя; при апгрейде платформы
+    # меняется здесь, строки сравнения подстроятся сами.
+    owner_gpu_class_key: str = "rtx2070"
+    owner_gpu_name: str = "RTX 2070"
 
     @property
     def watched_class_keys(self) -> frozenset[str]:

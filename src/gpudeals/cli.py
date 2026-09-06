@@ -12,6 +12,16 @@ from .notify import ConsoleNotifier, Notifier, TelegramNotifier
 from .shops import REGISTRY
 
 
+def _refresh_benchmarks() -> None:
+    """Обновляет справочник рейтинга PassMark и печатает итог."""
+    import logging
+
+    from . import benchmarks
+
+    total = benchmarks.refresh()
+    logging.info("справочник PassMark обновлён, записей: %s", total)
+
+
 def _build_notifier(force_console: bool) -> Notifier:
     if force_console or not (settings.telegram_token and settings.telegram_chat_id):
         if not force_console:
@@ -29,10 +39,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "command",
-        choices=("crawl", "watchlist", "heartbeat"),
+        choices=("crawl", "watchlist", "heartbeat", "refresh-benchmarks"),
         help=(
             "crawl — полный обход; watchlist — быстрая проверка избранных моделей; "
-            "heartbeat — строка о живости по итогам последних обходов"
+            "heartbeat — строка о живости по итогам последних обходов; "
+            "refresh-benchmarks — обновить справочник рейтинга PassMark"
         ),
     )
     parser.add_argument("--shop", action="append", choices=sorted(REGISTRY), help="только эти магазины")
@@ -46,6 +57,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     notifier = _build_notifier(args.console)
+
+    # Справочник рейтинга обновляется без обхода магазинов и без Telegram.
+    if args.command == "refresh-benchmarks":
+        _refresh_benchmarks()
+        return 0
 
     # Сводка читается из базы: собственного обхода она не делает.
     if args.command == "heartbeat":

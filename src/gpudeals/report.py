@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from html import escape
 
+from . import benchmarks
 from .evaluate import Signal, Verdict
 from .models import ItemKind, MatchLevel
 
@@ -57,6 +58,13 @@ def format_offer(verdict: Verdict) -> str:
             f"Цена за производительность: на {abs(verdict.perf_vs_class_pct):.0f}% "
             f"{direction} медианы класса"
         )
+
+    # Абсолютный рейтинг PassMark: насколько чип сильный вообще и что это
+    # значит против текущей карты владельца. Отвечает не на тот же вопрос,
+    # что «дешевле медианы класса» (цена против рынка), поэтому строки не
+    # дублируют друг друга.
+    if rating_line := benchmarks.format_rating(offer.class_key, offer.chip):
+        lines.append(rating_line)
 
     if verdict.build_residual is not None:
         lines.append(

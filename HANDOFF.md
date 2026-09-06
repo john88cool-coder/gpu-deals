@@ -44,7 +44,7 @@
 ```bash
 uv sync --extra dev --extra dns   # зависимости + Playwright
 uv run playwright install chromium
-uv run pytest                      # 131 тест, сеть не нужна
+uv run pytest                      # 146 тестов, сеть не нужна
 uv run gpu-deals crawl --console   # полный обход, вывод в консоль
 ```
 
@@ -123,7 +123,7 @@ src/gpudeals/
   cli.py         crawl / watchlist / heartbeat
   shops/         7 парсеров, общий интерфейс SHOP/parse(html)/fetch(client)
   shops/paging.py  new_offers(): один identity — одно наблюдение за обход
-tests/           131 тест на сохранённых фикстурах (сеть не нужна)
+tests/           146 тестов на сохранённых фикстурах (сеть не нужна)
 deploy/          systemd-юниты для VPS (не используются, пока живём на Actions)
 .github/workflows/  crawl (2ч), watchlist (20мин), heartbeat (03:00 UTC), tests
 ```
@@ -284,6 +284,21 @@ sulpak, отдающий последнюю страницу вместо пус
 - **Медиана класса** больше не включает саму оцениваемую позицию
   (`class_prices(exclude_identity=...)`); прежде фильтр шёл по значению цены.
 - **CI прогоняет тесты** (`.github/workflows/tests.yml`) на push и PR.
+- **Рейтинг PassMark в уведомлениях** (добавлено 2026-09-06). Справочник
+  `gpu_benchmarks.csv` теперь генерируется автоматически: workflow
+  `benchmarks.yml` раз в месяц качает две открытые страницы
+  videocardbenchmark.net (high_end + mid_range, полный рейтинг ~3000 карт) и
+  коммитит CSV; руками обновлять больше не нужно. В справочник попадают только
+  десктопные RTX/RX (~110 записей) — то, что бот видит; ноутбучные,
+  «Max-Q» и китайские «D»-варианты отбрасываются, иначе они сталкиваются с
+  десктопными картами в одном классе или ломают откат по чипу. Матчинг по
+  class_key (с памятью: у PassMark 5060 Ti 8GB и 16GB — разные позиции).
+  `format_rating()` в report.py печатает строку «Балл PassMark: … (N-е из M
+  десктопных RTX/RX), в X раз быстрее вашей RTX 2070»; карта владельца —
+  `owner_gpu_class_key`/`owner_gpu_name` в config.py. Сломанный справочник не
+  роняет уведомление — строка просто не показывается. Покрытие последнего
+  обхода: 25 из 27 классов (без рейтинга остаются рабочие RTX 5000/Quadro
+  варианты — чип неразличим).
 - **technodom `_MAX_PAGES` 9 → 10**: категория компьютеров отдаёт 10 страниц,
   одна страница сборок терялась.
 - Мелочи: убран дублирующийся `import re` в `ekatalog.py`, удалена неиспользуемая

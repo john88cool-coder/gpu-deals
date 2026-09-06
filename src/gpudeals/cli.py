@@ -7,7 +7,7 @@ import logging
 import sys
 
 from .config import settings
-from .crawler import run_once, send_digest, send_heartbeat
+from .crawler import run_once, send_digest, send_heartbeat, send_watchdog
 from .notify import ConsoleNotifier, Notifier, TelegramNotifier
 from .shops import REGISTRY
 
@@ -39,12 +39,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "command",
-        choices=("crawl", "watchlist", "heartbeat", "digest", "render-dashboard",
-                 "refresh-benchmarks"),
+        choices=("crawl", "watchlist", "heartbeat", "digest", "watchdog",
+                 "render-dashboard", "refresh-benchmarks"),
         help=(
             "crawl — полный обход; watchlist — быстрая проверка избранных моделей; "
             "heartbeat — строка о живости и шпаргалка покупателя; "
             "digest — недельный дайджест рынка; "
+            "watchdog — тревога, если обходы перестали приходить; "
             "render-dashboard — статическая страница рынка; "
             "refresh-benchmarks — обновить справочник рейтинга PassMark"
         ),
@@ -63,6 +64,13 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         metavar="N",
         help="crawl: обходить только если последний обход старше N часов",
+    )
+    parser.add_argument(
+        "--max-age-hours",
+        type=float,
+        default=12.0,
+        metavar="N",
+        help="watchdog: тревожить, если последний успешный обход старше N часов",
     )
     args = parser.parse_args(argv)
 
@@ -84,6 +92,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "digest":
         send_digest(notifier)
+        return 0
+    if args.command == "watchdog":
+        alarmed = send_watchdog(notifier, max_age_hours=args.max_age_hours,
+                                shops=args.shop)
+        if not alarmed:
+            logging.info("все обходы свежи — тревоги нет")
         return 0
     if args.command == "render-dashboard":
         from .config import DB_PATH

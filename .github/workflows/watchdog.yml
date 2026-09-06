@@ -1,0 +1,31 @@
+name: watchdog
+# Независимый сторож: если обходы перестали приходить (парсер сломался,
+# отправка упала, workflow отключили) — тишина в Telegram неотличима от
+# «скидок нет». Сторож читает базу и сам будит владельца. Дважды в сутки:
+# 06:00 и 18:00 UTC (11:00 и 23:00 по Алматы).
+on:
+  schedule:
+    - cron: '0 6 * * *'
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+
+      - name: Зависимости
+        run: uv sync
+
+      - name: Проверка свежести обходов
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GPUDEALS_DB: ${{ github.workspace }}/data/prices.sqlite3
+        run: uv run gpu-deals watchdog --max-age-hours 12

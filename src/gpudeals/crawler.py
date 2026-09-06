@@ -31,6 +31,7 @@ from .storage import (
     class_floor_for_cards,
     compact,
     connect,
+    last_successful_crawl,
     previous_item_count,
     prune_old_observations,
     record_alert,
@@ -482,3 +483,37 @@ def send_digest(notifier: Notifier) -> None:
     with connect() as conn:
         data = _market_digest(conn)
     notifier.send(format_market_digest(data))
+
+
+def send_watchdog(
+    notifier: Notifier,
+    max_age_hours: float = 12.0,
+    shops: list[str] | None = None,
+) -> bool:
+    """Независимый сторож: тревога, если последний успешный обход магазина
+    старше `max_age_hours`.
+
+    Зачем отдельная проверка: тишина в Telegram неотличима от «скидок нет».
+    Обычная тревога о поломке живёт внутри того же обхода, который сломался;
+    сторож же работает от отдельного workflow и молчит, только когда всё
+    действительно свежо. Возвращает True, если тревога отправлена.
+    """
+    stale: list[str] = []
+    with connect() as conn:
+        for shop in (shops or list(REGISTRY)):
+            last = last_successful_crawl(conn, shop)
+            if last is None:
+                stale.append(f"{shop}: успешных обходов не зафиксировано")
+                continue
+            age = (datetime.now(UTC) - datetime.fromisoformat(last)).total_seconds() / 3600
+            if age > max_age_hours:
+                stale.append(f"{shop}: последний успешный обход {age:.0f} ч назад")
+
+    if not stale:
+        return False
+
+    notifier.send(
+        "🚨 Монитор молчит — последний успешный обход старше "
+        f"{max_age_hours:.0f} ч:\n" + "\n".join(f"• {s}" for s in stale)
+    )
+    return True

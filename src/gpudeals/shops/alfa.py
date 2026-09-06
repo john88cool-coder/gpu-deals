@@ -96,6 +96,9 @@ def parse(html: str, builds_only: bool = False) -> list[Offer]:
         normalized = _memory_to_gb(title)
         memory_gb = extract_memory_gb(normalized, chip)
         is_build = looks_like_build(normalized) or builds_only
+        # Последний сегмент ссылки — стабильный id объявления: identity не
+        # зависит от правок названия.
+        sku = href.rstrip("/").rsplit("/", 1)[-1] or None
         offers.append(
             Offer(
                 shop=SHOP,
@@ -109,6 +112,7 @@ def parse(html: str, builds_only: bool = False) -> list[Offer]:
                 memory_gb=memory_gb,
                 brand=extract_brand(title),
                 in_stock=in_stock,
+                sku=sku,
             )
         )
     return offers

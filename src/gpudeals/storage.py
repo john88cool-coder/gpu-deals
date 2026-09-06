@@ -310,6 +310,16 @@ def previous_item_count(conn: sqlite3.Connection, shop: str) -> int | None:
     return row["item_count"] if row else None
 
 
+def last_successful_crawl(conn: sqlite3.Connection, shop: str) -> str | None:
+    """Когда последний раз магазин успешно обошли (ISO-время или None)."""
+    row = conn.execute(
+        """SELECT started_at FROM crawls WHERE shop = ? AND ok = 1
+           ORDER BY started_at DESC LIMIT 1""",
+        (shop,),
+    ).fetchone()
+    return row["started_at"] if row else None
+
+
 def shop_summary(conn: sqlite3.Connection, shops: Iterable[str]) -> list[tuple[str, int, bool]]:
     """Итог последнего обхода по каждому магазину: (магазин, позиций, успех).
 

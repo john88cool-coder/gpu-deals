@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from selectolax.parser import HTMLParser
 
@@ -71,6 +72,13 @@ def parse(html: str, builds_only: bool = False) -> list[Offer]:
         href = link.attributes.get("href") if link else None
         memory_gb = extract_memory_gb(title, chip)
 
+        # У части позиций forcecom нет ни партномера, ни артикула — identity
+        # держалась на заголовке, и его правка обнуляла историю цены. Слаг
+        # ссылки стабилен: /model/486920/ → sku.
+        sku = None
+        if href and (m := re.search(r"/model/(\d+)", href)):
+            sku = f"model-{m.group(1)}"
+
         # Статус наличия — span.js-replace-status («instock» / «Нет в наличии»).
         # Позитив по умолчанию: живого примера отсутствия в категории карт пока
         # не встречалось, и если классы сменятся, алерты не должны замолчать.
@@ -95,6 +103,7 @@ def parse(html: str, builds_only: bool = False) -> list[Offer]:
                 url=f"{BASE}{href}" if href else CATALOG_URL,
                 class_key=class_key(chip, memory_gb),
                 part_number=extract_part_number(title),
+                sku=sku,
                 chip=chip,
                 memory_gb=memory_gb,
                 brand=extract_brand(title),

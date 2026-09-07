@@ -165,9 +165,9 @@ def class_best_offers(
 ) -> dict[str, tuple[str, int]]:
     """Лучшее предложение по каждому классу: (магазин, цена).
 
-    Для ежедневной шпаргалки покупателя. Только в наличии, только интересующие
-    чипы; MIN(price) с «голыми» колонками отдаёт shop из строки минимума —
-    документированное поведение SQLite.
+    Только в наличии, только интересующие чипы; MIN(price) с «голыми»
+    колонками отдаёт shop из строки минимума — документированное поведение
+    SQLite.
     """
     since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
     chips_q = ",".join("?" * len(chips))
@@ -182,6 +182,42 @@ def class_best_offers(
         (*sorted(chips), skip_memory_gb, since),
     )
     return {row["class_key"]: (row["shop"], row["price"]) for row in cur}
+
+
+def class_best_deals(
+    conn, chips: frozenset[str], skip_memory_gb: int, window_days: int = 2
+) -> list[tuple[str, int, str, str, str]]:
+    """Самая выгодная позиция каждого класса для свода: (class_key, цена,
+    магазин, заголовок, ссылка).
+
+    Выгодная = минимальная СРЕДИ ПОСЛЕДНИХ цен позиций, а не минимум за окно:
+    минимум мог быть три дня назад по позиции, которой уже нет или которая
+    подорожала. Для каждой позиции берётся её последнее наблюдение
+    (MAX(observed_at) с «голыми» колонками), затем по классу — минимум.
+    Только в наличии, только интересующие чипы, фильтр памяти — как у сбора.
+    """
+    since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
+    chips_q = ",".join("?" * len(chips))
+    cur = conn.execute(
+        f"""SELECT class_key, price, shop, title, url FROM (
+              SELECT identity, class_key, price, shop, title, url,
+                     MAX(observed_at) AS at
+              FROM observations
+              WHERE kind = 'card' AND class_key IS NOT NULL AND in_stock = 1
+                    AND chip IN ({chips_q})
+                    AND (memory_gb IS NULL OR memory_gb > ?)
+                    AND observed_at >= ?
+              GROUP BY identity
+            )
+            GROUP BY class_key
+            HAVING price = MIN(price)
+            ORDER BY class_key""",
+        (*sorted(chips), skip_memory_gb, since),
+    )
+    return [
+        (row["class_key"], row["price"], row["shop"], row["title"], row["url"])
+        for row in cur
+    ]
 
 
 def last_in_stock(conn: sqlite3.Connection, identity: str) -> bool | None:

@@ -69,7 +69,7 @@
 ```bash
 uv sync --extra dev --extra dns   # зависимости + Playwright
 uv run playwright install chromium
-uv run pytest                      # 198 тестов, сеть не нужна
+uv run pytest                      # 203 теста, сеть не нужна
 uv run gpu-deals crawl --console   # полный обход, вывод в консоль
 ```
 
@@ -181,8 +181,8 @@ src/gpudeals/
   data/            gpu_benchmarks.csv (генерируется), prices.sqlite3 (git)
 tests/             198 тестов на сохранённых фикстурах (сеть не нужна)
 deploy/            systemd-юниты + install.sh для VPS
-.github/workflows/ crawl, catchup, watchlist, heartbeat, digest, dashboard,
-                   watchdog, benchmarks, tests
+.github/workflows/ crawl, catchup, watchlist, heartbeat, best-deals,
+                   digest, dashboard, watchdog, benchmarks, tests
 ```
 
 Схема БД: `observations` (все поля Offer + observed_at, kind, identity —
@@ -308,9 +308,11 @@ IP желателен для Kaspi/DNS/Halyk)**: юниты и `deploy/install.s
    с первого дня.
 
 Решения 6 сентября 2026 (в хронологии владельца): критерий «новейшие серии с
-памятью >8 ГБ»; Kaspi — источник алертов; кнопки; шпаргалка; ресток-сигнал;
-минимумы месяца; catch-up; бэктест; дашборд; сборки по витринам alfa/forcecom/
-halyk; watchdog; install.sh.
+памятью >8 ГБ»; Kaspi — источник алертов; кнопки; шпаргалка → свод «самая
+выгодная в каждой группе» три раза в день (09:00/14:00/20:00 Алматы,
+`best-deals.yml`: по классу — минимальная из ПОСЛЕДНИХ цен позиций, не
+минимум за окно); ресток-сигнал; минимумы месяца; catch-up; бэктест;
+дашборд; сборки по витринам alfa/forcecom/halyk; watchdog; install.sh.
 
 Баги, найденные живыми данными (не повторять): нули sulpak «под заказ»; ключ
 без магазина; партномер Gigabyte с прилипшим объёмом; «-41%» дороже аналога;

@@ -1,0 +1,31 @@
+name: best-deals
+# Свод «самая выгодная в каждой группе» — 09:00, 14:00 и 20:00 по Алматы
+# (= 04:00, 09:00 и 15:00 UTC; Казахстан — UTC+5 без перевода часов).
+# Читает локальную базу, обхода магазинов не делает: без Playwright и Chromium.
+on:
+  schedule:
+    - cron: '0 4 * * *'
+    - cron: '0 9 * * *'
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+
+jobs:
+  best-deals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+
+      - name: Зависимости
+        run: uv sync
+
+      - name: Свод лучших
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GPUDEALS_DB: ${{ github.workspace }}/data/prices.sqlite3
+        run: uv run gpu-deals best-deals

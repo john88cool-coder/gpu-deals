@@ -18,6 +18,7 @@ from .report import (
     DigestDeal,
     DigestValue,
     MarketDigest,
+    format_best_deals,
     format_breakage,
     format_buyers_guide,
     format_digest,
@@ -27,8 +28,9 @@ from .report import (
 from .shops import REGISTRY, is_alert_source
 from .storage import (
     best_build_residual,
-    class_best_offers,
+    class_best_deals,
     class_floor_for_cards,
+    class_prices,
     compact,
     connect,
     last_successful_crawl,
@@ -260,20 +262,35 @@ def run_once(
 
 
 def send_heartbeat(notifier: Notifier, shops: list[str] | None = None) -> None:
-    """Строка о живости + ежедневная шпаргалка покупателя, без нового обхода.
+    """Строка о живости по итогам последних обходов, без нового обхода.
 
-    Раньше сюда шёл полный обход всех семи магазинов с браузерным DNS, а его
+    Раньше сюда шёл полный обход всех магазинов с браузерным DNS, а его
     находки отправлялись и помечались как отправленные — но workflow heartbeat
     базу не коммитит, поэтому пометка терялась и та же находка приходила
-    повторно со следующим обходом.
+    повторно со следующим обходом. Шпаргалка покупателя переехала в
+    send_best_deals — иначе в 09:00 приходило бы два почти одинаковых сводa.
     """
     with connect() as conn:
         summary = shop_summary(conn, shops or list(REGISTRY))
-        best = class_best_offers(
-            conn,
-            INTERESTED_CHIPS,
-            default_settings.thresholds.skip_memory_gb,
+    notifier.send(format_heartbeat(summary))
+
+
+def send_best_deals(notifier: Notifier) -> None:
+    """Свод «самая выгодная в каждой группе» — три раза в день.
+
+    Читает локальную базу, обхода не делает. По каждому интересному классу —
+    минимальная из ПОСЛЕДНИХ цен позиций (не минимум за окно), контекст для
+    решения (% от медианы, ₸/балл, положение цели) и кнопка «Открыть».
+    """
+    with connect() as conn:
+        deals = class_best_deals(
+            conn, INTERESTED_CHIPS, default_settings.thresholds.skip_memory_gb
         )
+        medians: dict[str, int] = {}
+        for class_key, *_ in deals:
+            peers = class_prices(conn, ItemKind.CARD, class_key)
+            if len(peers) >= 3:
+                medians[class_key] = int(median(peers))
         build = best_build_residual(
             conn,
             class_floor_for_cards(conn),
@@ -281,22 +298,19 @@ def send_heartbeat(notifier: Notifier, shops: list[str] | None = None) -> None:
             chips=INTERESTED_CHIPS,
             skip_memory_gb=default_settings.thresholds.skip_memory_gb,
         )
+
     targets = {
         model.class_key: model.target_price
         for model in default_settings.watchlist
         if model.target_price is not None
     }
-    text = format_heartbeat(summary)
-    if best:
-        # Порядок шпаргалки — порядок watchlist: интересы владельца сверху.
-        order = {ck: i for i, ck in enumerate(default_settings.watched_class_keys)}
-        offers = sorted(best.items(), key=lambda item: order.get(item[0], 99))
-        text += "\n\n" + format_buyers_guide(
-            [(ck, price, shop) for ck, (shop, price) in offers],
-            targets,
-            best_build=build,
-        )
-    notifier.send(text)
+    # Порядок свода — порядок watchlist: интересы владельца сверху.
+    order = {ck: i for i, ck in enumerate(default_settings.watched_class_keys)}
+    deals.sort(key=lambda d: order.get(d[0], 99))
+
+    text = format_best_deals(deals, medians, targets, best_build=build)
+    buttons = [[(f"Открыть в {shop}", url)] for _ck, _p, shop, _t, url in deals]
+    notifier.send(text, buttons=buttons or None)
 
 
 # Классов в базе больше двух десятков; в дайджесте оставляем самые подвижные,

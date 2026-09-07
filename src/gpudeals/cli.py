@@ -7,7 +7,13 @@ import logging
 import sys
 
 from .config import settings
-from .crawler import run_once, send_digest, send_heartbeat, send_watchdog
+from .crawler import (
+    run_once,
+    send_best_deals,
+    send_digest,
+    send_heartbeat,
+    send_watchdog,
+)
 from .notify import ConsoleNotifier, Notifier, TelegramNotifier
 from .shops import REGISTRY
 
@@ -39,12 +45,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "command",
-        choices=("crawl", "watchlist", "heartbeat", "digest", "watchdog",
-                 "render-dashboard", "refresh-benchmarks"),
+        choices=("crawl", "watchlist", "heartbeat", "digest", "best-deals",
+                 "watchdog", "render-dashboard", "refresh-benchmarks"),
         help=(
             "crawl — полный обход; watchlist — быстрая проверка избранных моделей; "
-            "heartbeat — строка о живости и шпаргалка покупателя; "
+            "heartbeat — строка о живости; "
             "digest — недельный дайджест рынка; "
+            "best-deals — свод самых выгодных по группам; "
             "watchdog — тревога, если обходы перестали приходить; "
             "render-dashboard — статическая страница рынка; "
             "refresh-benchmarks — обновить справочник рейтинга PassMark"
@@ -92,6 +99,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "digest":
         send_digest(notifier)
+        return 0
+    if args.command == "best-deals":
+        send_best_deals(notifier)
         return 0
     if args.command == "watchdog":
         alarmed = send_watchdog(notifier, max_age_hours=args.max_age_hours,

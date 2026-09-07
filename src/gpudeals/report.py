@@ -170,6 +170,42 @@ def format_breakage(shop: str, previous_count: int) -> str:
     )
 
 
+def format_best_deals(
+    deals: list[tuple[str, int, str, str, str]],
+    medians: dict[str, int],
+    targets: dict[str, int],
+    best_build: tuple[str, int, str, int] | None = None,
+) -> str:
+    """Свод «самая выгодная в каждой группе»: одна позиция на класс с контекстом
+    для решения — насколько ниже медианы, цена за балл, положение цели."""
+    lines = ["<b>🏆 Самые выгодные по группам</b>"]
+    for class_key, price, shop, title, _url in deals:
+        lines.append(f"<b>{_text(class_key)}</b>: {_money(price)} ({_text(shop)})")
+        lines.append(f"   {_text(title)}")
+        med = medians.get(class_key)
+        if med:
+            delta = (med - price) / med * 100
+            if delta >= 0.5:
+                lines.append(f"   на {delta:.0f}% дешевле медианы класса ({_money(med)})")
+        per_point = benchmarks.price_per_point(class_key.split("-")[0], price)
+        if per_point:
+            lines.append(
+                f"   цена за балл: {str(round(per_point, 1)).replace('.', ',')} ₸"
+            )
+        if (target := targets.get(class_key)) is not None:
+            if price <= target:
+                lines.append(f"   цель {_money(target)} ✓ достигнута")
+            else:
+                lines.append(f"   до цели {_money(price - target)}")
+    if best_build is not None:
+        class_key, price, shop, residual = best_build
+        lines.append(
+            f"<b>Сборка</b> {class_key}: {_money(price)} ({_text(shop)}) — "
+            f"остаток за платформу {_money(residual)}"
+        )
+    return "\n".join(lines)
+
+
 def format_buyers_guide(
     offers: list[tuple[str, int, str]], targets: dict[str, int],
     best_build: tuple[str, int, str, int] | None = None,

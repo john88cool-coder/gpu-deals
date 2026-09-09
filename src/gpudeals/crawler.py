@@ -18,9 +18,10 @@ from .report import (
     DigestDeal,
     DigestValue,
     MarketDigest,
+    _short_title,
+    chip_label,
     format_best_deals,
     format_breakage,
-    format_buyers_guide,
     format_digest,
     format_heartbeat,
     format_market_digest,
@@ -227,18 +228,26 @@ async def crawl(
 def _alert_buttons(findings: list[Verdict]) -> list[list[tuple[str, str]]] | None:
     """Inline-кнопки для дайджеста находок: по строке на каждую находку.
 
-    Текст кнопки ограничен 64 символами Telegram, поэтому магазин вместо
-    заголовка: класс и так написан в сообщении над ссылкой.
+    Пока не нажмёшь, не поймёшь, что за кнопка — худший UX кнопки. Поэтому в
+    подписи три опорных факта: модель (короткий заголовок), цена и магазин.
+    Лимит Telegram — 64 символа на текст кнопки, длинные названия подрезаются.
     """
     rows: list[list[tuple[str, str]]] = []
     for verdict in findings:
         offer = verdict.offer
-        row = [(f"Открыть в {offer.shop}", offer.url)]
+        row = [(_button_label(offer.title, offer.price, offer.shop), offer.url)]
         if verdict.cheaper_elsewhere:
-            shop, _price, url = verdict.cheaper_elsewhere
-            row.append((f"Где дешевле: {shop}", url))
+            shop, price, url = verdict.cheaper_elsewhere
+            row.append((f"⚡️ {chip_label(offer.class_key)} · {price:,}".replace(",", " ") +
+                        f" ₸ · {shop}".replace(" ₸ ", " ₸ "), url))
         rows.append(row)
     return rows or None
+
+
+def _button_label(title: str, price: int, shop: str) -> str:
+    model = _short_title(title, max_len=34)
+    label = f"{model} · {price:,} ₸ · {shop}".replace(",", " ")
+    return label[:64]
 
 
 def run_once(

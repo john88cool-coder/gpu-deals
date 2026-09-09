@@ -33,9 +33,12 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
 
       - name: Зависимости
+        # dl.google.com в apt-источниках раннера периодически отдаёт hash
+        # mismatch — ретрай через минуту решает (бой 2026-09-09: crawl упал,
+        # обход не начался).
         run: |
           uv sync --extra dns
-          uv run playwright install --with-deps chromium
+          uv run playwright install --with-deps chromium             || { sleep 60; sudo apt-get update; uv run playwright install --with-deps chromium; }
 
       - name: Обход, если база устарела
         env:

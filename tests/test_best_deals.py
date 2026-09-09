@@ -116,7 +116,7 @@ def test_send_best_deals_includes_build(db) -> None:
     notifier = Recording()
     crawler.send_best_deals(notifier)
 
-    assert "<b>Сборка</b> rtx5070-12" in notifier.sent[0]
+    assert "🧱 <b>Сборка</b> RTX 5070" in notifier.sent[0]
     assert "остаток за платформу 470 000 ₸" in notifier.sent[0]
 
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from html import escape
 
@@ -71,18 +72,63 @@ def _text(value: str) -> str:
 # и строка о ней только удлиняет сообщение.
 _PERF_NOTABLE_PCT = 5.0
 
+# Эмодзи-маркеры сигналов: глаз цепляется за них раньше, чем за текст.
+_SIGNAL_EMOJI = {
+    Signal.PRICE_DROP: "📉",
+    Signal.BELOW_CLASS: "⚡️",
+    Signal.NEW_IN_BUDGET: "🆕",
+    Signal.TARGET_PRICE: "🎯",
+    Signal.RESTOCK: "📦",
+}
+
+
+def _short_title(title: str, max_len: int = 56) -> str:
+    """Заголовок для сводa: без «Видеокарта», партномеров и спецификаций.
+
+    Полную версию с партномером владелец увидит на странице товара — в
+    сообщении она только съедает место и толкает цену за первый экран.
+    """
+    cleaned = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", title)
+    cleaned = re.sub(r"^\s*(видеокарта|компьютер|игровой компьютер)\s+",
+                     "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,")
+    if len(cleaned) > max_len:
+        return cleaned[: max_len - 1].rstrip() + "…"
+    return cleaned
+
+
+def chip_label(class_key: str | None) -> str:
+    """«rtx5070ti-16» → «RTX 5070 Ti»: для подписей кнопок и заголовков."""
+    if not class_key:
+        return ""
+    chip = class_key.split("-", 1)[0]
+    match = re.match(r"(rtx|rx)(\d{4})(.*)", chip)
+    if not match:
+        return chip.upper()
+    prefix, number, suffix = match.groups()
+    for token, pretty in (("super", " Super"), ("gre", " GRE"), ("xtx", " XTX"),
+                          ("xt", " XT"), ("ti", " Ti")):
+        suffix = suffix.replace(token, pretty)
+    return f"{prefix.upper()} {number}{suffix}".strip()
+
 
 def format_offer(verdict: Verdict) -> str:
     offer = verdict.offer
-    lines = [f"<b>{_text(offer.title)}</b>", f"Цена: {_money(offer.price)}"]
+    title = _text(_short_title(offer.title))
+    # Первая строка — о чём; вторая — почём и где: цена жирным, магазин ссылкой.
+    lines = [
+        f"<b>{title}</b>",
+        f"💰 <b>{_money(offer.price)}</b> · "
+        f'<a href="{_text(offer.url)}">{_text(offer.shop)}</a>',
+    ]
 
-    for _, explanation in verdict.signals:
-        lines.append(f"• {explanation}")
+    for signal, explanation in verdict.signals:
+        lines.append(f"{_SIGNAL_EMOJI[signal]} {explanation}")
 
     below_class_shown = any(signal is Signal.BELOW_CLASS for signal, _ in verdict.signals)
 
     if verdict.class_median and not below_class_shown:
-        lines.append(f"Медиана класса: {_money(verdict.class_median)}")
+        lines.append(f"📏 медиана класса: {_money(verdict.class_median)}")
 
     # Внутри класса чип один и тот же, поэтому цена за производительность
     # повторяет процент из «дешевле медианы» — печатаем только когда тот сигнал
@@ -94,55 +140,51 @@ def format_offer(verdict: Verdict) -> str:
     ):
         direction = "лучше" if verdict.perf_vs_class_pct > 0 else "хуже"
         lines.append(
-            f"Цена за производительность: на {abs(verdict.perf_vs_class_pct):.0f}% "
+            f"⭐️ цена за балл: на {abs(verdict.perf_vs_class_pct):.0f}% "
             f"{direction} медианы класса"
         )
 
     # Абсолютный рейтинг PassMark: насколько чип сильный вообще и что это
-    # значит против текущей карты владельца. Отвечает не на тот же вопрос,
-    # что «дешевле медианы класса» (цена против рынка), поэтому строки не
-    # дублируют друг друга.
+    # значит против текущей карты владельца.
     if rating_line := benchmarks.format_rating(offer.class_key, offer.chip):
-        lines.append(rating_line)
+        lines.append(f"⭐️ {rating_line}")
 
     # Кросс-магазинное сравнение из текущего цикла: главный вопрос после
     # «выгодно ли» — «где сейчас брать». Ссылка на более дешёвый оффер —
-    # в inline-кнопке уведомления.
+    # во второй кнопке строки.
     if verdict.cheaper_elsewhere:
         shop, price, _url = verdict.cheaper_elsewhere
         lines.append(
-            f"Дешевле сейчас: {_text(shop)} — {_money(price)} "
+            f"⚡️ дешевле сейчас: {_text(shop)} — {_money(price)} "
             f"(−{_money(offer.price - price)})"
         )
     elif verdict.lowest_in_market:
-        lines.append("Самая низкая цена среди магазинов")
+        lines.append("🥇 самая низкая цена среди магазинов")
 
     if verdict.build_residual is not None:
         lines.append(
-            f"Остаток за платформу: {_money(verdict.build_residual)} "
+            f"🧱 остаток за платформу: {_money(verdict.build_residual)} "
             f"(процессор, память, накопитель, плата, корпус, БП)"
         )
 
     if offer.shop_old_price:
         lines.append(
-            f"Магазин указывает: {_money(offer.shop_old_price)} → {_money(offer.price)} "
-            f"(не проверено, справочно)"
+            f"<i>магазин указывает: {_money(offer.shop_old_price)} → "
+            f"{_money(offer.price)} (не проверено, справочно)</i>"
         )
 
     if verdict.over_budget_by:
-        lines.append(f"⚠ Выше бюджета на {_money(verdict.over_budget_by)}")
+        lines.append(f"⚠️ выше бюджета на {_money(verdict.over_budget_by)}")
 
     # Строка наличия нужна только когда товара нет: «В наличии» в каждом
     # сообщении — шум, а такие алерты и так не отправляются.
     if not offer.in_stock:
-        lines.append(f"Наличие: {_text(offer.stock_note or 'нет в наличии')}")
+        lines.append(f"❌ наличие: {_text(offer.stock_note or 'нет в наличии')}")
 
     # У сборок партномера не бывает по определению, поэтому пометка о
     # приблизительности там ничего не сообщает — только у карт.
     if offer.kind is ItemKind.CARD and offer.match_level is MatchLevel.CLASS:
-        lines.append("<i>Модель опознана только по классу — сравнение приблизительное</i>")
-
-    lines.append(f'<a href="{_text(offer.url)}">{_text(offer.shop)}</a>')
+        lines.append("<i>модель опознана только по классу — сравнение приблизительное</i>")
     return "\n".join(lines)
 
 
@@ -200,8 +242,8 @@ def format_best_deals(
     if best_build is not None:
         class_key, price, shop, residual = best_build
         lines.append(
-            f"<b>Сборка</b> {class_key}: {_money(price)} ({_text(shop)}) — "
-            f"остаток за платформу {_money(residual)}"
+            "🧱 <b>Сборка</b> " + chip_label(class_key) + f": {_money(price)} "
+            f"({_text(shop)}) — остаток за платформу {_money(residual)}"
         )
     return "\n".join(lines)
 

@@ -210,11 +210,11 @@ def test_report_shows_cross_shop_lines() -> None:
         offer=offer("technodom", 480_000), signals=[(Signal.NEW_IN_BUDGET, "тест")],
         cheaper_elsewhere=("dns", 450_000, "https://dns/p/x"),
     )
-    assert "Дешевле сейчас: dns — 450 000 ₸ (−30 000 ₸)" in format_offer(expensive)
+    assert "⚡️ дешевле сейчас: dns — 450 000 ₸ (−30 000 ₸)" in format_offer(expensive)
 
     cheapest = Verdict(offer=offer("dns", 440_000), signals=[(Signal.NEW_IN_BUDGET, "тест")])
     cheapest.lowest_in_market = True
-    assert "Самая низкая цена среди магазинов" in format_offer(cheapest)
+    assert "🥇 самая низкая цена среди магазинов" in format_offer(cheapest)
 
 
 def test_alert_buttons_carry_offer_urls() -> None:
@@ -229,11 +229,11 @@ def test_alert_buttons_carry_offer_urls() -> None:
     cheapest = Verdict(offer=offer("dns", 440_000), signals=[(Signal.NEW_IN_BUDGET, "тест")])
 
     buttons = _alert_buttons([expensive, cheapest])
-    assert buttons == [
-        [("Открыть в technodom", "https://example.kz"),
-         ("Где дешевле: dns", "https://dns/p/x")],
-        [("Открыть в dns", "https://example.kz")],
-    ]
+    # Кнопка сообщает три опорных факта: модель, цена, магазин.
+    assert buttons[0][0] == ("RTX 5070 technodom · 480 000 ₸ · technodom",
+                             "https://example.kz")
+    assert buttons[0][1] == ("⚡️ RTX 5070 · 450 000 ₸ · dns", "https://dns/p/x")
+    assert buttons[1] == [("RTX 5070 dns · 440 000 ₸ · dns", "https://example.kz")]
 
 
 def test_alert_buttons_absent_without_findings() -> None:

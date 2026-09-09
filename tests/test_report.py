@@ -88,7 +88,7 @@ def test_build_residual_explains_what_is_included() -> None:
 
 def test_over_budget_is_flagged_not_silenced() -> None:
     verdict = Verdict(offer=card(price=757_990), signals=[], over_budget_by=157_990)
-    assert "Выше бюджета на 157 990 ₸" in format_offer(verdict)
+    assert "⚠️ выше бюджета на 157 990 ₸" in format_offer(verdict)
 
 
 def test_digest_separates_cards_and_builds() -> None:

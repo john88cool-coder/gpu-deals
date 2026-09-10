@@ -134,6 +134,10 @@ def extract_memory_gb(title: str, chip: str | None = None) -> int | None:
             for mem in _MEMORY.finditer(tail):
                 if _NOT_VRAM.search(tail[: mem.start()]):
                     continue
+                # Контекст ПОСЛЕ числа: «16 ГБ ОЗУ» — оперативная память,
+                # даже если перед числом нет DDR/SSD («/ 16 ГБ ОЗУ / RTX…»).
+                if re.search(r"\s*(?:ОЗУ|RAM)", tail[mem.end():], re.I):
+                    continue
                 if _vram_plausible(chip, int(mem.group(1))):
                     return int(mem.group(1))
     for mem in _MEMORY.finditer(title):

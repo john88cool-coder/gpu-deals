@@ -14,7 +14,7 @@ from statistics import median
 
 from .config import Thresholds
 from .models import ItemKind, MatchLevel, Offer
-from .storage import class_prices, last_alert, last_in_stock, price_history
+from .storage import class_prices, last_alert, last_in_stock, last_price, price_history
 
 
 class Signal(str, Enum):
@@ -116,12 +116,21 @@ def evaluate(
                     f"({_tenge(class_med)}){approx}",
                 ))
 
-    # Сигнал «новинка в бюджете»: позиция впервые оказалась под потолком.
-    if offer.price <= budget and last_alert(conn, offer.identity) is None:
-        if not price_history(conn, offer.identity, thresholds.trend_window_days):
+    # Сигнал «новинка в бюджете»: два разных случая. (1) позицию увидели
+    # впервые; (2) позиция с историей впервые опустилась под потолок — раньше
+    # этот переход (610 000 → 599 000 при потолке 600 000) давал бы ноль
+    # сигналов без других оснований.
+    if offer.price <= budget:
+        last = last_price(conn, offer.identity)
+        if last is None and last_alert(conn, offer.identity) is None:
             verdict.signals.append((
                 Signal.NEW_IN_BUDGET,
                 f"новая позиция в бюджете (≤ {_tenge(budget)})",
+            ))
+        elif last is not None and last > budget:
+            verdict.signals.append((
+                Signal.NEW_IN_BUDGET,
+                f"впервые в бюджете: была {_tenge(last)}",
             ))
 
     # Сигнал «целевая цена»: владелец назвал сумму, при которой берёт эту

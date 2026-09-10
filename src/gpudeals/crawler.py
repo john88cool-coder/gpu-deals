@@ -35,6 +35,7 @@ from .storage import (
     compact,
     connect,
     last_successful_crawl,
+    mark_alerts_delivered,
     previous_item_count,
     prune_old_observations,
     record_alert,
@@ -74,17 +75,30 @@ async def crawl(
     watched = config.watched_class_keys if watchlist_only else None
 
     if stale_hours is not None:
+        # Свежесть проверяется по КАЖДОМУ источнику (последний успешный обход
+        # магазина), а не по глобальной строке базы: свежая запись одного
+        # магазина не должна маскировать молчание остальных.
         with connect() as conn:
-            row = conn.execute("SELECT MAX(observed_at) AS at FROM observations").fetchone()
-        if row and row["at"]:
-            last = datetime.fromisoformat(row["at"])
-            age = (datetime.now(UTC) - last).total_seconds() / 3600
-            if age < stale_hours:
-                log.info(
-                    "последний обход %.1f ч назад (< %.1f ч) — обход не требуется",
-                    age, stale_hours,
-                )
-                return [], [], []
+            stale_shops = []
+            for shop in targets:
+                last = last_successful_crawl(conn, shop)
+                if last is None:
+                    stale_shops.append(shop)
+                    continue
+                # started_at пишется с UTC-офсетом, но строки от SQLite
+                # datetime('now') наивны — считаем их UTC.
+                last_dt = datetime.fromisoformat(last)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=UTC)
+                age = (datetime.now(UTC) - last_dt).total_seconds() / 3600
+                if age >= stale_hours:
+                    stale_shops.append(shop)
+        if not stale_shops:
+            log.info(
+                "все источники свежее %.1f ч — обход не требуется", stale_hours
+            )
+            return [], [], []
+        log.info("устарели источники: %s — запускаю обход", ", ".join(stale_shops))
 
     headers = {"User-Agent": config.user_agent, "Accept-Language": "ru,en;q=0.8"}
     async with httpx.AsyncClient(
@@ -132,7 +146,10 @@ async def crawl(
             ok = error is None
             summary.append((shop_name, raw_counts[shop_name], ok))
 
-            if ok and not offers and not watchlist_only:
+            if ok and raw_counts[shop_name] == 0 and not watchlist_only:
+                # Поломка — это СЫРОЙ ноль (изменилась вёрстка/защита). Ноль
+                # после фильтров при живом парсере (25 карт не тех серий)
+                # поломкой не является.
                 previous = previous_item_count(conn, shop_name)
                 if previous and previous >= config.thresholds.breakage_min_previous_items:
                     breakages.append(format_breakage(shop_name, previous))
@@ -225,6 +242,20 @@ async def crawl(
     return findings, breakages, summary
 
 
+def _safe_send(notifier: Notifier, text: str, buttons: list[list[tuple[str, str]]] | None = None) -> bool:
+    """Отправка, не роняющая обход: сбой Telegram не должен терять наблюдения.
+
+    Возвращает True при успехе. Находки остаются недоставленными в alerts и
+    переотправятся следующим циклом (дедупликация считает только доставленные).
+    """
+    try:
+        notifier.send(text, buttons=buttons)
+        return True
+    except Exception as exc:  # noqa: BLE001 — отказ Telegram не мешает коммиту базы
+        log.error("отправка не удалась (алерт переотправится): %s", exc)
+        return False
+
+
 def _alert_buttons(findings: list[Verdict]) -> list[list[tuple[str, str]]] | None:
     """Inline-кнопки для дайджеста находок: по строке на каждую находку.
 
@@ -262,10 +293,16 @@ def run_once(
     )
 
     for text in breakages:
-        notifier.send(text)
+        _safe_send(notifier, text)
 
     if findings:
-        notifier.send(format_digest(findings), buttons=_alert_buttons(findings))
+        delivered = _safe_send(notifier, format_digest(findings),
+                               buttons=_alert_buttons(findings))
+        if delivered and getattr(notifier, "confirms_delivery", False):
+            # Подтверждение доставки только для реального канала: console-режим
+            # не расходует дедупликацию находок.
+            with connect() as conn:
+                mark_alerts_delivered(conn, [v.offer.identity for v in findings])
 
     return len(findings)
 
@@ -412,7 +449,8 @@ def _market_digest(conn) -> MarketDigest:
     }
     best_deal: DigestDeal | None = None
     for row in conn.execute(
-        f"""SELECT identity, MIN(price) AS price, shop, title, url
+        f"""SELECT identity, MIN(price) AS price, shop, title, url,
+                   substr(MIN(observed_at), 1, 10) AS day
             FROM observations
             WHERE kind = 'card' AND in_stock = 1 AND {interest_filter}
                   AND observed_at >= ?
@@ -427,6 +465,7 @@ def _market_digest(conn) -> MarketDigest:
             best_deal = DigestDeal(
                 title=row["title"], shop=row["shop"], price=row["price"],
                 prev_price=prev, drop_pct=drop, url=row["url"],
+                observed_day=row["day"],
             )
 
     # Лидеры по цене за балл: последняя наблюдённая цена позиции за неделю,

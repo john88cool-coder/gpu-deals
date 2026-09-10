@@ -141,8 +141,9 @@ def test_digest_renders_monthly_minima(tmp_path) -> None:
 # --- catch-up ----------------------------------------------------------------
 
 
-def test_crawl_skips_when_database_is_fresh(tmp_path, monkeypatch) -> None:
-    """Свежая база — тихий выход без единого запроса к магазинам."""
+def test_crawl_skips_when_all_sources_fresh(tmp_path, monkeypatch) -> None:
+    """Свежесть измеряется по каждому источнику (последний успешный обход):
+    свежая запись одного магазина не маскирует молчание остальных."""
     db = tmp_path / "db.sqlite3"
     monkeypatch.setattr("gpudeals.storage.DB_PATH", db)
 
@@ -157,6 +158,12 @@ def test_crawl_skips_when_database_is_fresh(tmp_path, monkeypatch) -> None:
 
     with connect(db) as conn:
         insert(conn, "fake:pn:gv-1", 400_000, days_ago=0.1)
+        # Свежий успешный обход источника — единственное, что учитывает
+        # проверка свежести.
+        conn.execute(
+            """INSERT INTO crawls (started_at, shop, item_count, ok)
+               VALUES (datetime('now'), 'fake', 1, 1)"""
+        )
 
     findings, breakages, summary = asyncio.run(
         crawler.crawl(["fake"], stale_hours=4)
@@ -164,7 +171,7 @@ def test_crawl_skips_when_database_is_fresh(tmp_path, monkeypatch) -> None:
     assert (findings, breakages, summary) == ([], [], [])
 
 
-def test_crawl_runs_when_database_is_stale(tmp_path, monkeypatch) -> None:
+def test_crawl_runs_when_source_is_stale(tmp_path, monkeypatch) -> None:
     db = tmp_path / "db.sqlite3"
     monkeypatch.setattr("gpudeals.storage.DB_PATH", db)
 
@@ -178,7 +185,30 @@ def test_crawl_runs_when_database_is_stale(tmp_path, monkeypatch) -> None:
     monkeypatch.setitem(crawler.REGISTRY, "fake", FakeShop)
 
     with connect(db) as conn:
-        insert(conn, "fake:pn:gv-1", 400_000, days_ago=5)
+        # Устаревший успешный обход: наблюдения могли протухнуть, но решает
+        # запись crawls.
+        conn.execute(
+            """INSERT INTO crawls (started_at, shop, item_count, ok)
+               VALUES (datetime('now', '-5 hours'), 'fake', 1, 1)"""
+        )
+
+    _, _, summary = asyncio.run(crawler.crawl(["fake"], stale_hours=4))
+    assert summary == [("fake", 1, True)]
+
+
+def test_crawl_runs_when_source_never_crawled(tmp_path, monkeypatch) -> None:
+    """Источник без успешных обходов считается устаревшим."""
+    db = tmp_path / "db.sqlite3"
+    monkeypatch.setattr("gpudeals.storage.DB_PATH", db)
+
+    class FakeShop:
+        SHOP = "fake"
+
+        @staticmethod
+        async def fetch(client):  # noqa: ANN001
+            return [offer(400_000)]
+
+    monkeypatch.setitem(crawler.REGISTRY, "fake", FakeShop)
 
     _, _, summary = asyncio.run(crawler.crawl(["fake"], stale_hours=4))
     assert summary == [("fake", 1, True)]

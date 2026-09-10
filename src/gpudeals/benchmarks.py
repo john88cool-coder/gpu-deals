@@ -262,14 +262,18 @@ def _owner_rating() -> Rating | None:
 
 
 def _owner_comparison(score: int, owner: Rating) -> str | None:
-    """Насколько карта быстрее или медленнее текущей карты владельца."""
-    ratio = score / owner.g3d
+    """Разница баллов PassMark с картой владельца, в процентах.
+
+    Отношение баллов — не обещание такого же прироста FPS в играх, поэтому
+    формулировка честнее в процентах, чем «в X раза быстрее».
+    """
+    pct = round((score / owner.g3d - 1) * 100)
     name = settings.owner_gpu_name
-    if ratio >= 1.15:
-        return f"в {ratio:.1f}".replace(".", ",") + f" раза быстрее вашей {name}"
-    if ratio >= 0.85:
-        return f"примерно на уровне вашей {name}"
-    return f"на {abs(1 - ratio) * 100:.0f}% медленнее вашей {name}"
+    if pct >= 5:
+        return f"+{pct}% к вашей {name}"
+    if pct <= -5:
+        return f"{pct}% к вашей {name}"
+    return f"на уровне вашей {name}"
 
 
 def format_rating(class_key: str | None, chip: str | None) -> str | None:

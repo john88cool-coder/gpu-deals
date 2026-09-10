@@ -25,6 +25,7 @@ class DigestDeal:
     prev_price: int
     drop_pct: float
     url: str
+    observed_day: str  # день, когда зафиксирован минимум (YYYY-MM-DD)
 
 
 @dataclass(frozen=True)
@@ -314,13 +315,17 @@ def format_market_digest(data: MarketDigest) -> str:
 
     if data.best_deal:
         deal = data.best_deal
-        blocks.append("\n<b>── Лучшее предложение недели ──</b>")
+        blocks.append("\n<b>── Самое сильное снижение недели ──</b>")
         blocks.append(
             f"<b>{_text(deal.title)}</b> ({_text(deal.shop)})\n"
             f"{_money(deal.price)}, −{deal.drop_pct:.0f}% за неделю "
-            f"(было {_money(deal.prev_price)})\n"
+            f"(было {_money(deal.prev_price)}, {deal.observed_day})\n"
             f'<a href="{_text(deal.url)}">открыть</a>'
         )
+        if deal.price > 600_000:
+            blocks.append(
+                f"⚠️ выше бюджета на {_money(deal.price - 600_000)}"
+            )
     else:
         blocks.append(
             "\nЛучшее предложение недели не определено: нужно две недели истории."

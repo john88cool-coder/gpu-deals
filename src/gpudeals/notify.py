@@ -18,6 +18,8 @@ import httpx
 TELEGRAM_MAX_CHARS = 4000
 # Лимит Bot API — 1 сообщение в секунду на чат.
 _SEND_INTERVAL_S = 1.1
+# Повторные попытки при 429/5xx/сетевых сбоях: ограниченные, с паузами.
+_MAX_ATTEMPTS = 3
 
 
 def split_message(text: str, limit: int = TELEGRAM_MAX_CHARS) -> list[str]:
@@ -46,7 +48,9 @@ class Notifier(Protocol):
     """Канал доставки уведомлений.
 
     `buttons` — строки inline-кнопок с ссылками (текст, url); каналы без
-    поддержки кнопок (консоль) их игнорируют.
+    поддержки кнопок (консоль) их игнорируют. `confirms_delivery` — канал
+    подтверждает доставку (Telegram — да, консоль — нет: dry-run не должен
+    расходовать дедупликацию находок).
     """
 
     def send(
@@ -54,8 +58,19 @@ class Notifier(Protocol):
     ) -> None: ...
 
 
+# Лимитер на уровне чата: пауза между ЛЮБЫМИ двумя запросами, а не только
+# между частями одного сообщения — breakage, digest и heartbeat идут подряд.
+_LAST_POST_TS = 0.0
+
+
 class TelegramNotifier:
-    """Отправка через Bot API. Длинные сообщения нарезаются автоматически."""
+    """Отправка через Bot API. Длинные сообщения нарезаются автоматически;
+    429 с retry_after и временные ошибки 5xx/сети повторяются ограниченно.
+
+    confirms_delivery = True: успешный send подтверждает доставку находок.
+    """
+
+    confirms_delivery = True
 
     def __init__(self, token: str, chat_id: str, timeout: float = 20.0) -> None:
         self._url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -84,12 +99,41 @@ class TelegramNotifier:
                         for row in buttons
                     ]
                 }
-            response = httpx.post(self._url, json=payload, timeout=self._timeout)
-            response.raise_for_status()
+            self._post(payload)
+
+    def _post(self, payload: dict) -> None:
+        global _LAST_POST_TS
+        last_error: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            wait = _LAST_POST_TS + _SEND_INTERVAL_S - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            _LAST_POST_TS = time.monotonic()
+            try:
+                response = httpx.post(self._url, json=payload, timeout=self._timeout)
+            except httpx.TransportError as exc:
+                last_error = exc
+            else:
+                if response.status_code == 429:
+                    last_error = RuntimeError("429")
+                    try:
+                        retry_after = response.json()["parameters"]["retry_after"]
+                    except Exception:  # noqa: BLE001 — нет retry_after в ответе
+                        retry_after = 5
+                    time.sleep(retry_after + 1)
+                elif response.status_code >= 500 and attempt < _MAX_ATTEMPTS - 1:
+                    last_error = RuntimeError(f"{response.status_code}")
+                    time.sleep(3)
+                else:
+                    response.raise_for_status()
+                    return
+        raise last_error if last_error else RuntimeError("отправка не удалась")
 
 
 class ConsoleNotifier:
-    """Вывод в stdout — для отладки без токена."""
+    """Вывод в stdout — для отладки без токена. Доставку не подтверждает."""
+
+    confirms_delivery = False
 
     def send(
         self, text: str, buttons: list[list[tuple[str, str]]] | None = None

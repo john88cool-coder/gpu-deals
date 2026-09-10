@@ -48,6 +48,7 @@ jobs:
         run: uv run gpu-deals crawl --if-stale-hours 4
 
       - name: Сохранить базу
+        if: always()  # наблюдения и недоставленные алерты переживают отказ Telegram
         run: |
           git config user.name "gpu-deals"
           git config user.email "actions@users.noreply.github.com"

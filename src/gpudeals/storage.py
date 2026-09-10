@@ -44,7 +44,8 @@ CREATE INDEX IF NOT EXISTS idx_obs_time     ON observations(observed_at);
 CREATE TABLE IF NOT EXISTS alerts (
     identity     TEXT PRIMARY KEY,
     alerted_at   TEXT    NOT NULL,
-    alerted_price INTEGER NOT NULL
+    alerted_price INTEGER NOT NULL,
+    delivered_at TEXT
 );
 
 -- Итоги обходов: нужны, чтобы заметить молча сломавшийся парсер.
@@ -64,6 +65,19 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Разовые миграции существующих баз.
+
+    delivered_at добавляется вместе с обратным заполнением: алерты, сделанные
+    до появления колонки, реально уходили в Telegram — помечаем доставленными,
+    иначе первый запуск после обновления переотправил бы всю старую историю.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(alerts)")}
+    if "delivered_at" not in columns:
+        conn.execute("ALTER TABLE alerts ADD COLUMN delivered_at TEXT")
+        conn.execute("UPDATE alerts SET delivered_at = alerted_at WHERE delivered_at IS NULL")
+
+
 @contextmanager
 def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
     target = path or DB_PATH
@@ -72,6 +86,7 @@ def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         yield conn
         conn.commit()
     finally:
@@ -102,11 +117,16 @@ def save_observations(conn: sqlite3.Connection, offers: Iterable[Offer]) -> int:
 def price_history(
     conn: sqlite3.Connection, identity: str, window_days: int
 ) -> list[tuple[str, int]]:
-    """Наблюдения по позиции за окно тренда, от старых к новым."""
+    """Наблюдения по позиции за окно тренда, от старых к новым.
+
+    Только доступные наблюдения: цена позиции «под заказ» за 800 000 ₸ не
+    должна создавать ложное «упало на 50%» при возврате за прежние 400 000 ₸.
+    Возвращение в продажу — отдельное событие (Signal.RESTOCK).
+    """
     since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
     cur = conn.execute(
         """SELECT observed_at, price FROM observations
-           WHERE identity = ? AND observed_at >= ?
+           WHERE identity = ? AND observed_at >= ? AND in_stock = 1
            ORDER BY observed_at""",
         (identity, since),
     )
@@ -192,23 +212,24 @@ def class_best_deals(
 
     Выгодная = минимальная СРЕДИ ПОСЛЕДНИХ цен позиций, а не минимум за окно:
     минимум мог быть три дня назад по позиции, которой уже нет или которая
-    подорожала. Для каждой позиции берётся её последнее наблюдение
-    (MAX(observed_at) с «голыми» колонками), затем по классу — минимум.
-    Только в наличии, только интересующие чипы, фильтр памяти — как у сбора.
+    подорожала. Последнее наблюдение каждой позиции выбирается БЕЗ фильтра
+    наличия (иначе вчерашняя цена отсутствующего сегодня товара выигрывает у
+    доступного конкурента), и только затем позиция проверяется на in_stock.
     """
     since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat(timespec="seconds")
     chips_q = ",".join("?" * len(chips))
     cur = conn.execute(
         f"""SELECT class_key, price, shop, title, url FROM (
-              SELECT identity, class_key, price, shop, title, url,
-                     MAX(observed_at) AS at
+              SELECT identity, class_key, price, shop, title, url, in_stock,
+                     MAX(observed_at) AS at, MAX(id) AS max_id
               FROM observations
-              WHERE kind = 'card' AND class_key IS NOT NULL AND in_stock = 1
+              WHERE kind = 'card' AND class_key IS NOT NULL
                     AND chip IN ({chips_q})
                     AND (memory_gb IS NULL OR memory_gb > ?)
                     AND observed_at >= ?
               GROUP BY identity
             )
+            WHERE in_stock = 1
             GROUP BY class_key
             HAVING price = MIN(price)
             ORDER BY class_key""",
@@ -218,6 +239,16 @@ def class_best_deals(
         (row["class_key"], row["price"], row["shop"], row["title"], row["url"])
         for row in cur
     ]
+
+
+def last_price(conn: sqlite3.Connection, identity: str) -> int | None:
+    """Последняя наблюдённая цена позиции (любое наличие) или None."""
+    row = conn.execute(
+        """SELECT price FROM observations WHERE identity = ?
+           ORDER BY observed_at DESC, id DESC LIMIT 1""",
+        (identity,),
+    ).fetchone()
+    return row["price"] if row else None
 
 
 def last_in_stock(conn: sqlite3.Connection, identity: str) -> bool | None:
@@ -274,16 +305,37 @@ def best_build_residual(
 
 
 def last_alert(conn: sqlite3.Connection, identity: str) -> int | None:
-    cur = conn.execute("SELECT alerted_price FROM alerts WHERE identity = ?", (identity,))
+    """Цена последнего ДОСТАВЛЕННОГО алерта по позиции.
+
+    Находки, помеченные, но не отправленные (сбой Telegram), дедупликацию не
+    расходуют: следующий обход при той же цене отправит их.
+    """
+    cur = conn.execute(
+        """SELECT alerted_price FROM alerts WHERE identity = ?
+                 AND delivered_at IS NOT NULL""",
+        (identity,),
+    )
     row = cur.fetchone()
     return row["alerted_price"] if row else None
 
 
+def mark_alerts_delivered(conn: sqlite3.Connection, identities: list[str]) -> None:
+    """Подтверждает доставку алертов после успешной отправки в Telegram."""
+    conn.executemany(
+        """UPDATE alerts SET delivered_at = ? WHERE identity = ? AND delivered_at IS NULL""",
+        [(now_iso(), identity) for identity in identities],
+    )
+
+
 def record_alert(conn: sqlite3.Connection, identity: str, price: int) -> None:
+    """Фиксирует НАЙДЕННУЮ находку (не отправленную): delivered_at остаётся
+    NULL до подтверждения доставки — см. mark_alerts_delivered."""
     conn.execute(
-        """INSERT INTO alerts (identity, alerted_at, alerted_price) VALUES (?,?,?)
+        """INSERT INTO alerts (identity, alerted_at, alerted_price, delivered_at)
+           VALUES (?,?,?,NULL)
            ON CONFLICT(identity) DO UPDATE SET alerted_at=excluded.alerted_at,
-                                               alerted_price=excluded.alerted_price""",
+                                               alerted_price=excluded.alerted_price,
+                                               delivered_at=NULL""",
         (identity, now_iso(), price),
     )
 

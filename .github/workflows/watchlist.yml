@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: watchlist
+  group: crawl
   cancel-in-progress: false
 
 jobs:

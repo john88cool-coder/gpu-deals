@@ -93,6 +93,7 @@ async def fetch(client, queries: list[str] | None = None) -> list[Offer]:
     offers: list[Offer] = []
     seen: set[str] = set()
 
+    successes = 0
     for index, query in enumerate(targets):
         if index:
             await asyncio.sleep(CRAWL_DELAY)
@@ -103,4 +104,9 @@ async def fetch(client, queries: list[str] | None = None) -> list[Offer]:
             continue
         # Запросы по разным моделям возвращают пересекающиеся выдачи.
         offers.extend(new_offers(found, seen))
+        successes += 1
+    if successes == 0 and targets:
+        # Полный отказ — не «пустая выдача»: _fetch_shop пометит магазин
+        # неуспешным, и сторож увидит молчание источника.
+        raise RuntimeError("все запросы Kaspi завершились ошибкой")
     return offers

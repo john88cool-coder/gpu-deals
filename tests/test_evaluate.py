@@ -151,8 +151,14 @@ def test_build_over_its_own_budget(conn) -> None:
 
 
 def test_repeat_alert_only_on_new_low(conn) -> None:
+    from gpudeals.storage import mark_alerts_delivered
+
     offer = make_offer(price=450_000)
     record_alert(conn, offer.identity, 450_000)
+    # Только ДОСТАВЛЕННЫЙ алерт расходует дедупликацию: находка, помеченная
+    # до отправки (сбой Telegram), переотправится следующим циклом.
+    assert is_new_low(conn, offer) is True
+    mark_alerts_delivered(conn, [offer.identity])
     assert is_new_low(conn, offer) is False
     assert is_new_low(conn, make_offer(price=440_000)) is True
 

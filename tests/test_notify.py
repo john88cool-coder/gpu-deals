@@ -58,6 +58,8 @@ def test_telegram_buttons_go_to_last_chunk_only(monkeypatch) -> None:
     posted: list[dict] = []
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self) -> None:
             return None
 
@@ -83,6 +85,8 @@ def test_telegram_without_buttons_sends_plain_payload(monkeypatch) -> None:
     posted: list[dict] = []
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self) -> None:
             return None
 

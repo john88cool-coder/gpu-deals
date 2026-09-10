@@ -78,13 +78,17 @@ def run(
         # Медианы классов за предыдущие 3 дня: минимум позиции за день,
         # затем минимум по идентификатору за окно.
         window = days_sorted[max(0, index - 3):index]
-        class_pool: dict[str, list[int]] = defaultdict(list)
+        # Пул с идентификаторами: медиана класса для позиции не должна
+        # включать её же прошлые цены (те же правила, что в evaluate).
+        class_pool: dict[str, list[tuple[str, int]]] = defaultdict(list)
         for prev_day in window:
-            for _, (price, class_key, _) in daily[prev_day].items():
-                class_pool[class_key].append(price)
-        class_medians = {
-            ck: median(prices) for ck, prices in class_pool.items() if len(prices) >= 3
-        }
+            for identity, (price, class_key, _) in daily[prev_day].items():
+                class_pool[class_key].append((identity, price))
+        def class_median(ck: str, identity: str) -> int | None:
+            """Медиана класса БЕЗ самой позиции: три своих наблюдения — не три
+            «аналога» (те же правила, что в evaluate)."""
+            others = [price for ident, price in class_pool[ck] if ident != identity]
+            return int(median(others)) if len(others) >= 3 else None
 
         # Тренд позиции: дневные минимумы за предыдущие 14 дней.
         trend_window = days_sorted[max(0, index - 14):index]
@@ -94,7 +98,7 @@ def run(
                 trend_pool[identity].append(price)
 
         for identity, (price, class_key, _) in daily[day].items():
-            class_med = class_medians.get(class_key)
+            class_med = class_median(class_key, identity)
             trend_points = trend_pool.get(identity, [])
             trend_med = median(trend_points) if len(trend_points) >= 7 else None
 

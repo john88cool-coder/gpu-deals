@@ -116,13 +116,16 @@ def test_missing_chip_has_no_rating(reference) -> None:
 
 
 def test_owner_comparison_faster_and_slower(reference) -> None:
-    """RTX 5080 против RTX 2070 SUPER (18 122): в ~2 раза быстрее."""
+    """RTX 5080 (35 622) против RTX 2070 SUPER (18 122): +97% баллов.
+
+    Отношение баллов PassMark — не обещание прироста FPS, поэтому подпись
+    честнее в процентах, чем «в X раза быстрее»."""
     line = benchmarks.format_rating("rtx5080-16", "rtx5080")
-    assert "в 2,0 раза быстрее вашей RTX 2070 SUPER" in line
+    assert "+97% к вашей RTX 2070 SUPER" in line
 
     slow = benchmarks.Rating(chip="rtx3050", model_name="GeForce RTX 3050 8GB",
                              g3d=8_523, rank=99, class_key="rtx3050-8")
-    assert "медленнее вашей RTX 2070 SUPER" in benchmarks._owner_comparison(slow.g3d, benchmarks._owner_rating())
+    assert "-53% к вашей RTX 2070 SUPER" in benchmarks._owner_comparison(slow.g3d, benchmarks._owner_rating())
 
 
 def test_owner_comparison_near_par(reference, monkeypatch) -> None:
@@ -154,7 +157,7 @@ def test_report_shows_rating_for_known_card(reference) -> None:
     )
     text = format_offer(Verdict(offer=offer, signals=[(Signal.NEW_IN_BUDGET, "тест")]))
     assert "Балл PassMark: 35 622" in text
-    assert "быстрее вашей RTX 2070 SUPER" in text
+    assert "+97% к вашей RTX 2070 SUPER" in text
 
 
 def test_report_hides_rating_for_unknown_card(reference) -> None:

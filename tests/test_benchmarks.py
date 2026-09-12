@@ -142,7 +142,7 @@ def test_format_rating_line_shape(reference) -> None:
 
 
 def test_report_shows_rating_for_known_card(reference) -> None:
-    from gpudeals.evaluate import Signal, Verdict
+    from gpudeals.evaluate import Signal, SignalHit, SignalHit, Verdict
     from gpudeals.report import format_offer
 
     offer = Offer(
@@ -155,13 +155,13 @@ def test_report_shows_rating_for_known_card(reference) -> None:
         chip="rtx5080",
         memory_gb=16,
     )
-    text = format_offer(Verdict(offer=offer, signals=[(Signal.NEW_IN_BUDGET, "тест")]))
+    text = format_offer(Verdict(offer=offer, signals=[SignalHit(Signal.NEW_IN_BUDGET)]))
     assert "Балл PassMark: 35 622" in text
     assert "+97% к вашей RTX 2070 SUPER" in text
 
 
 def test_report_hides_rating_for_unknown_card(reference) -> None:
-    from gpudeals.evaluate import Signal, Verdict
+    from gpudeals.evaluate import Signal, SignalHit, Verdict
     from gpudeals.report import format_offer
 
     offer = Offer(
@@ -174,7 +174,7 @@ def test_report_hides_rating_for_unknown_card(reference) -> None:
         chip="rx9999",
         memory_gb=16,
     )
-    text = format_offer(Verdict(offer=offer, signals=[(Signal.NEW_IN_BUDGET, "тест")]))
+    text = format_offer(Verdict(offer=offer, signals=[SignalHit(Signal.NEW_IN_BUDGET)]))
     assert "PassMark" not in text
 
 

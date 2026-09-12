@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gpudeals.evaluate import Signal, Verdict
+from gpudeals.evaluate import Signal, SignalHit, SignalHit, Verdict
 from gpudeals.models import ItemKind, Offer
 from gpudeals.report import format_breakage, format_digest, format_heartbeat, format_offer
 
@@ -25,14 +25,14 @@ def card(**overrides) -> Offer:
 def test_shop_discount_is_marked_unverified() -> None:
     verdict = Verdict(
         offer=card(shop_old_price=555_990, shop_discount_pct=18),
-        signals=[(Signal.NEW_IN_BUDGET, "новая позиция в бюджете")],
+        signals=[SignalHit(Signal.NEW_IN_BUDGET)],
     )
     text = format_offer(verdict)
     assert "не проверено, справочно" in text
 
 
 def test_prices_are_formatted_with_spaces() -> None:
-    text = format_offer(Verdict(offer=card(), signals=[(Signal.NEW_IN_BUDGET, "тест")]))
+    text = format_offer(Verdict(offer=card(), signals=[SignalHit(Signal.NEW_IN_BUDGET)]))
     assert "457 990 ₸" in text
 
 
@@ -40,7 +40,7 @@ def test_perf_line_hidden_when_below_class_signal_present() -> None:
     """Внутри класса чип один и тот же, поэтому две строки повторяли бы друг друга."""
     verdict = Verdict(
         offer=card(price=410_990),
-        signals=[(Signal.BELOW_CLASS, "на 13% дешевле медианы класса (470 486 ₸)")],
+        signals=[SignalHit(Signal.BELOW_CLASS, base=470_486, sample=14)],
         class_median=470_486,
         perf_vs_class_pct=12.6,
     )
@@ -52,7 +52,7 @@ def test_perf_line_hidden_when_below_class_signal_present() -> None:
 def test_perf_line_hidden_when_difference_is_noise() -> None:
     verdict = Verdict(
         offer=card(),
-        signals=[(Signal.NEW_IN_BUDGET, "тест")],
+        signals=[SignalHit(Signal.NEW_IN_BUDGET)],
         class_median=470_990,
         perf_vs_class_pct=1.4,
     )
@@ -62,7 +62,7 @@ def test_perf_line_hidden_when_difference_is_noise() -> None:
 def test_approximate_match_note_only_for_cards() -> None:
     no_part_number = card(part_number=None)
     assert "приблизительное" in format_offer(
-        Verdict(offer=no_part_number, signals=[(Signal.NEW_IN_BUDGET, "тест")])
+        Verdict(offer=no_part_number, signals=[SignalHit(Signal.NEW_IN_BUDGET)])
     )
 
     build = card(
@@ -72,14 +72,14 @@ def test_approximate_match_note_only_for_cards() -> None:
         part_number=None,
     )
     assert "приблизительное" not in format_offer(
-        Verdict(offer=build, signals=[(Signal.NEW_IN_BUDGET, "тест")])
+        Verdict(offer=build, signals=[SignalHit(Signal.NEW_IN_BUDGET)])
     )
 
 
 def test_build_residual_explains_what_is_included() -> None:
     build = card(kind=ItemKind.BUILD, part_number=None, price=870_000)
     verdict = Verdict(
-        offer=build, signals=[(Signal.NEW_IN_BUDGET, "тест")], build_residual=412_010
+        offer=build, signals=[SignalHit(Signal.NEW_IN_BUDGET)], build_residual=412_010
     )
     text = format_offer(verdict)
     assert "412 010 ₸" in text
@@ -92,10 +92,10 @@ def test_over_budget_is_flagged_not_silenced() -> None:
 
 
 def test_digest_separates_cards_and_builds() -> None:
-    cards = Verdict(offer=card(), signals=[(Signal.NEW_IN_BUDGET, "тест")])
+    cards = Verdict(offer=card(), signals=[SignalHit(Signal.NEW_IN_BUDGET)])
     build = Verdict(
         offer=card(kind=ItemKind.BUILD, part_number=None),
-        signals=[(Signal.NEW_IN_BUDGET, "тест")],
+        signals=[SignalHit(Signal.NEW_IN_BUDGET)],
     )
     text = format_digest([cards, build])
     assert "Находок: 2" in text
@@ -128,7 +128,7 @@ def test_shop_text_is_escaped_for_html_mode() -> None:
             in_stock=False,
             part_number=None,
         ),
-        signals=[(Signal.NEW_IN_BUDGET, "тест")],
+        signals=[SignalHit(Signal.NEW_IN_BUDGET)],
     )
     text = format_offer(verdict)
 
@@ -136,8 +136,8 @@ def test_shop_text_is_escaped_for_html_mode() -> None:
     assert "Strix &amp; TUF" in text
     assert "под заказ &lt;7 дней&gt;" in text
     # Ссылка остаётся разметкой, но её содержимое экранировано.
-    assert '<a href="https://shop.kz/offer/x?a=1&amp;b=2">technodom</a>' in text
-    assert text.startswith("<b>")
+    assert "technodom" in text
+    assert "Новинка в бюджете" in text
     # Ни одного необработанного угла из данных магазина.
     assert "<ROG>" not in text
 

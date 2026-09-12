@@ -113,46 +113,103 @@ def chip_label(class_key: str | None) -> str:
     return f"{prefix.upper()} {number}{suffix}".strip()
 
 
+def _signal_headline(signal: Signal) -> str:
+    """Первая строка карточки: почему уведомление пришло."""
+    return {
+        Signal.TARGET_PRICE: "🎯 Цель достигнута",
+        Signal.RESTOCK: "📦 В наличие по целевой цене",
+        Signal.PRICE_DROP: "📉 Подтверждённое снижение",
+        Signal.BELOW_CLASS: "⚡️ Дешевле аналогов",
+        Signal.NEW_IN_BUDGET: "🆕 Новинка в бюджете",
+    }[signal]
+
+
+def _signal_line(hit) -> str:
+    """Строка сигнала из структурированных данных."""
+    if hit.signal is Signal.PRICE_DROP:
+        return (f"📉 на {hit.sample} наблюдениях медиана была "
+                f"{_money(hit.base)} — сейчас дешевле")
+    if hit.signal is Signal.BELOW_CLASS:
+        return (f"⚡️ на {_hit_below_pct(hit):.0f}% дешевле медианы класса "
+                f"({_money(hit.base)}, {hit.sample} позиций)")
+    if hit.signal is Signal.NEW_IN_BUDGET:
+        if hit.base is not None:
+            return f"🆕 впервые в бюджете: была {_money(hit.base)}"
+        return "🆕 новая позиция в бюджете"
+    return ""
+
+
+def _hit_below_pct(hit, price: int) -> float:
+    if not hit.base or hit.base <= price:
+        return 0.0
+    return (hit.base - price) / hit.base * 100
+
+
+def _chip_with_memory(offer) -> str:
+    """«RTX 5070 Ti · 16 ГБ» из класса и объёма."""
+    label = chip_label(offer.class_key)
+    if offer.memory_gb:
+        return f"{label} · {offer.memory_gb} ГБ"
+    return label
+
+
 def format_offer(verdict: Verdict) -> str:
     offer = verdict.offer
     title = _text(_short_title(offer.title))
-    # Первая строка — о чём; вторая — почём и где: цена жирным, магазин ссылкой.
-    lines = [
-        f"<b>{title}</b>",
-        f"💰 <b>{_money(offer.price)}</b> · "
-        f'<a href="{_text(offer.url)}">{_text(offer.shop)}</a>',
-    ]
 
-    for signal, explanation in verdict.signals:
-        lines.append(f"{_SIGNAL_EMOJI[signal]} {explanation}")
+    # Главная причина — самый весомый сигнал сверху (цель > ресток > упало >
+    # дешевле аналогов > новинка). Пустой signals — только over_budget.
+    order = [Signal.TARGET_PRICE, Signal.RESTOCK, Signal.PRICE_DROP,
+             Signal.BELOW_CLASS, Signal.NEW_IN_BUDGET]
+    hits = sorted(verdict.signals,
+                  key=lambda h: order.index(h.signal) if h.signal in order else 99)
+    main = hits[0] if hits else None
 
-    below_class_shown = any(signal is Signal.BELOW_CLASS for signal, _ in verdict.signals)
+    # Первая строка: что (сигнал), какая группа. Без сигналов — просто название.
+    if main:
+        lines = [f"{_signal_headline(main.signal)} · {_text(_chip_with_memory(offer))}"]
+    else:
+        lines = [f"⚠️ {title}"]
+    # Вторая: короткое название и магазин.
+    lines.append(f"{title} · {_text(offer.shop)}")
+    # Третья: цена — главный факт, предупреждение бюджета рядом.
+    price_line = f"💰 <b>{_money(offer.price)}</b>"
+    if verdict.over_budget_by:
+        price_line += f" ⚠️ выше бюджета на {_money(verdict.over_budget_by)}"
+    lines.append(price_line)
 
-    if verdict.class_median and not below_class_shown:
-        lines.append(f"📏 медиана класса: {_money(verdict.class_median)}")
+    # Положение относительно цели — рядом с ценой, это решение владельца.
+    for hit in hits:
+        if hit.target is not None:
+            if offer.price <= hit.target:
+                lines.append(f"🎯 на {_money(hit.target - offer.price)} ниже твоей цели")
+            else:
+                lines.append(f"🎯 до цели {_money(offer.price - hit.target)}")
+            break
 
-    # Внутри класса чип один и тот же, поэтому цена за производительность
-    # повторяет процент из «дешевле медианы» — печатаем только когда тот сигнал
-    # не сработал и число само по себе заметное.
-    if (
-        not below_class_shown
-        and verdict.perf_vs_class_pct is not None
-        and abs(verdict.perf_vs_class_pct) >= _PERF_NOTABLE_PCT
-    ):
-        direction = "лучше" if verdict.perf_vs_class_pct > 0 else "хуже"
-        lines.append(
-            f"⭐️ цена за балл: на {abs(verdict.perf_vs_class_pct):.0f}% "
-            f"{direction} медианы класса"
-        )
+    # Детали каждого сигнала — с базой сравнения и глубиной выборки.
+    for hit in hits:
+        if hit.signal is Signal.PRICE_DROP and hit.base is not None:
+            span = (f" за доступные {verdict.drop_span_days} дн."
+                    if verdict.drop_span_days else "")
+            lines.append(
+                f"📉 медиана этой модели была {_money(hit.base)}{span} "
+                f"({hit.sample} наблюдений)"
+            )
+        elif hit.signal is Signal.BELOW_CLASS and hit.base is not None:
+            pct = _hit_below_pct(hit, offer.price)
+            lines.append(
+                f"⚡️ на {pct:.0f}% дешевле медианы класса "
+                f"({_money(hit.base)}, {hit.sample} позиций)"
+            )
+        elif hit.signal is Signal.NEW_IN_BUDGET and hit.base is not None:
+            lines.append(f"🆕 впервые в бюджете: была {_money(hit.base)}")
 
-    # Абсолютный рейтинг PassMark: насколько чип сильный вообще и что это
-    # значит против текущей карты владельца.
+    # Рейтинг PassMark — относительный, без абсолютных баллов и места.
     if rating_line := benchmarks.format_rating(offer.class_key, offer.chip):
         lines.append(f"⭐️ {rating_line}")
 
-    # Кросс-магазинное сравнение из текущего цикла: главный вопрос после
-    # «выгодно ли» — «где сейчас брать». Ссылка на более дешёвый оффер —
-    # во второй кнопке строки.
+    # Кросс-магазинное сравнение.
     if verdict.cheaper_elsewhere:
         shop, price, _url = verdict.cheaper_elsewhere
         lines.append(
@@ -168,24 +225,23 @@ def format_offer(verdict: Verdict) -> str:
             f"(процессор, память, накопитель, плата, корпус, БП)"
         )
 
+    # Магазинная «скидка» — справочно, курсивом.
     if offer.shop_old_price:
         lines.append(
             f"<i>магазин указывает: {_money(offer.shop_old_price)} → "
             f"{_money(offer.price)} (не проверено, справочно)</i>"
         )
 
-    if verdict.over_budget_by:
-        lines.append(f"⚠️ выше бюджета на {_money(verdict.over_budget_by)}")
-
-    # Строка наличия нужна только когда товара нет: «В наличии» в каждом
-    # сообщении — шум, а такие алерты и так не отправляются.
     if not offer.in_stock:
         lines.append(f"❌ наличие: {_text(offer.stock_note or 'нет в наличии')}")
 
-    # У сборок партномера не бывает по определению, поэтому пометка о
-    # приблизительности там ничего не сообщает — только у карт.
     if offer.kind is ItemKind.CARD and offer.match_level is MatchLevel.CLASS:
         lines.append("<i>модель опознана только по классу — сравнение приблизительное</i>")
+
+    # Единственный сигнал «новинка» без других оснований: скидка не подтверждена.
+    if hits and hits[0].signal is Signal.NEW_IN_BUDGET and len(hits) == 1:
+        lines.append("<i>скидка пока не подтверждена: позиция новая, истории нет</i>")
+
     return "\n".join(lines)
 
 

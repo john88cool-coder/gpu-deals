@@ -69,7 +69,7 @@
 ```bash
 uv sync --extra dev --extra dns   # зависимости + Playwright
 uv run playwright install chromium
-uv run pytest                      # 203 теста, сеть не нужна
+uv run pytest                      # 204 теста, сеть не нужна
 uv run gpu-deals crawl --console   # полный обход, вывод в консоль
 ```
 

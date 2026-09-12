@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from gpudeals.config import Thresholds
-from gpudeals.evaluate import Signal, evaluate, is_new_low
+from gpudeals.evaluate import SignalHit, Signal, evaluate, is_new_low
 from gpudeals.models import ItemKind, Offer
 from gpudeals.storage import SCHEMA, connect, record_alert
 
@@ -96,7 +96,7 @@ def test_below_class_median_triggers_signal(conn) -> None:
         part_number=None,
     )
     verdict = evaluate(conn, offer, Thresholds())
-    assert Signal.BELOW_CLASS in [signal for signal, _ in verdict.signals]
+    assert Signal.BELOW_CLASS in [hit.signal for hit in verdict.signals]
 
 
 def test_price_drop_uses_trend_not_all_time_minimum(conn) -> None:
@@ -105,7 +105,7 @@ def test_price_drop_uses_trend_not_all_time_minimum(conn) -> None:
     # Цена росла: минимум 400 000 давно, свежая медиана около 500 000.
     seed_history(conn, offer.identity, [400_000, 430_000, 480_000, 500_000, 505_000, 510_000, 515_000])
     verdict = evaluate(conn, offer, Thresholds())
-    signals = [signal for signal, _ in verdict.signals]
+    signals = [hit.signal for hit in verdict.signals]
     assert Signal.PRICE_DROP in signals
 
 
@@ -113,7 +113,7 @@ def test_no_drop_signal_before_enough_observations(conn) -> None:
     offer = make_offer(price=400_000)
     seed_history(conn, offer.identity, [500_000, 500_000])
     verdict = evaluate(conn, offer, Thresholds())
-    assert Signal.PRICE_DROP not in [signal for signal, _ in verdict.signals]
+    assert Signal.PRICE_DROP not in [hit.signal for hit in verdict.signals]
 
 
 def test_class_median_separates_cards_from_builds(conn) -> None:

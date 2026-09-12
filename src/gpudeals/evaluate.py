@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
 from statistics import median
 
@@ -25,12 +26,27 @@ class Signal(str, Enum):
     RESTOCK = "в наличие"
 
 
+@dataclass(frozen=True)
+class SignalHit:
+    """Структурированные данные сигнала — без готового текста.
+
+    Рендерер собирает из них строки карточки; цифры остаются числами,
+    поэтому подписи и глубину истории можно показывать честно.
+    """
+
+    signal: Signal
+    base: int | None = None   # база сравнения: медиана модели/класса
+    sample: int | None = None  # наблюдений или позиций в базе сравнения
+    target: int | None = None  # целевая цена (TARGET_PRICE, RESTOCK)
+    window_days: int | None = None  # окно тренда (PRICE_DROP)
+
+
 @dataclass
 class Verdict:
     """Итог оценки одного предложения."""
 
     offer: Offer
-    signals: list[tuple[Signal, str]]
+    signals: list[SignalHit]
     class_median: int | None = None
     over_budget_by: int | None = None
     perf_vs_class_pct: float | None = None
@@ -40,6 +56,14 @@ class Verdict:
     cheaper_elsewhere: tuple[str, int, str] | None = None
     # Ни один другой магазин не предлагает этот класс дешевле.
     lowest_in_market: bool = False
+    # Глубина истории для «упало»: дней от первого наблюдения в окне.
+    drop_span_days: int | None = None
+
+    def hits(self, signal: Signal) -> list[SignalHit]:
+        return [hit for hit in self.signals if hit.signal is signal]
+
+    def has(self, signal: Signal) -> bool:
+        return any(hit.signal is signal for hit in self.signals)
 
     @property
     def should_alert(self) -> bool:
@@ -89,10 +113,14 @@ def evaluate(
             if expected:
                 delta_pct = (expected - offer.price) / expected * 100
                 if delta_pct >= thresholds.drop_pct:
-                    verdict.signals.append((
+                    first_day = datetime.fromisoformat(history[0][0])
+                    span = (datetime.now(UTC) - first_day).days + 1
+                    verdict.drop_span_days = span
+                    verdict.signals.append(SignalHit(
                         Signal.PRICE_DROP,
-                        f"на {delta_pct:.0f}% ниже обычной цены этой модели "
-                        f"({_tenge(expected)} за {thresholds.trend_window_days} дн.)",
+                        base=expected,
+                        sample=len(history),
+                        window_days=thresholds.trend_window_days,
                     ))
 
     # Сигнал «дешевле аналогов»: медиана по классу, раздельно по типу товара.
@@ -105,15 +133,10 @@ def evaluate(
             verdict.class_median = class_med
             delta_pct = (class_med - offer.price) / class_med * 100
             if delta_pct >= thresholds.below_class_median_pct:
-                approx = (
-                    " (сопоставление по классу, не по модели)"
-                    if offer.match_level is MatchLevel.CLASS
-                    else ""
-                )
-                verdict.signals.append((
+                verdict.signals.append(SignalHit(
                     Signal.BELOW_CLASS,
-                    f"на {delta_pct:.0f}% дешевле медианы класса "
-                    f"({_tenge(class_med)}){approx}",
+                    base=class_med,
+                    sample=len(peers),
                 ))
 
     # Сигнал «новинка в бюджете»: два разных случая. (1) позицию увидели
@@ -123,23 +146,20 @@ def evaluate(
     if offer.price <= budget:
         last = last_price(conn, offer.identity)
         if last is None and last_alert(conn, offer.identity) is None:
-            verdict.signals.append((
-                Signal.NEW_IN_BUDGET,
-                f"новая позиция в бюджете (≤ {_tenge(budget)})",
-            ))
+            verdict.signals.append(SignalHit(Signal.NEW_IN_BUDGET))
         elif last is not None and last > budget:
-            verdict.signals.append((
+            verdict.signals.append(SignalHit(
                 Signal.NEW_IN_BUDGET,
-                f"впервые в бюджете: была {_tenge(last)}",
+                base=last,
             ))
 
     # Сигнал «целевая цена»: владелец назвал сумму, при которой берёт эту
     # модель. Медианы и тренды ни при чём — цена дошла до цели, надо брать.
     target = (watch_targets or {}).get(offer.class_key or "")
     if target and offer.price <= target:
-        verdict.signals.append((
+        verdict.signals.append(SignalHit(
             Signal.TARGET_PRICE,
-            f"цена дошла до цели: {_tenge(offer.price)} (цель {_tenge(target)})",
+            target=target,
         ))
 
     # Сигнал «в наличие»: позиция вернулась на витрину, и цена при возврате не
@@ -151,9 +171,9 @@ def evaluate(
         and offer.price <= target
         and last_in_stock(conn, offer.identity) is False
     ):
-        verdict.signals.append((
+        verdict.signals.append(SignalHit(
             Signal.RESTOCK,
-            f"появился в наличии по {_tenge(offer.price)} (цель {_tenge(target)})",
+            target=target,
         ))
 
     # Сравнение с другими магазинами: тот же тип товара и класс в текущем

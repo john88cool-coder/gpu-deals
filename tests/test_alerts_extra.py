@@ -14,7 +14,7 @@ import pytest
 
 from gpudeals import backtest, benchmarks, crawler
 from gpudeals.config import Settings, WatchedModel
-from gpudeals.evaluate import Signal, evaluate
+from gpudeals.evaluate import Signal, SignalHit, SignalHit, evaluate
 from gpudeals.models import ItemKind, Offer
 from gpudeals.storage import connect
 
@@ -55,8 +55,7 @@ def test_restock_signal_when_back_in_stock_under_target(tmp_path) -> None:
             conn, offer(294_000), Settings().thresholds,
             watch_targets={"rtx5070-12": 295_000},
         )
-    signals = [s for s, _ in verdict.signals]
-    assert Signal.RESTOCK in signals
+    assert verdict.has(Signal.RESTOCK)
 
 
 def test_restock_above_target_stays_silent(tmp_path) -> None:
@@ -66,7 +65,7 @@ def test_restock_above_target_stays_silent(tmp_path) -> None:
             conn, offer(400_000), Settings().thresholds,
             watch_targets={"rtx5070-12": 295_000},
         )
-    assert Signal.RESTOCK not in [s for s, _ in verdict.signals]
+    assert not verdict.has(Signal.RESTOCK)
 
 
 def test_restock_bypasses_dedup_gate(tmp_path, monkeypatch) -> None:
@@ -92,7 +91,7 @@ def test_restock_bypasses_dedup_gate(tmp_path, monkeypatch) -> None:
 
     findings, _, _ = asyncio.run(crawler.crawl(["fake"], config=config))
 
-    signals = [s for v in findings for s, _ in v.signals]
+    signals = [h.signal for v in findings for h in v.signals]
     assert Signal.RESTOCK in signals
 
 
@@ -104,7 +103,7 @@ def test_in_stock_without_gap_is_not_restock(tmp_path) -> None:
             conn, offer(294_000), Settings().thresholds,
             watch_targets={"rtx5070-12": 295_000},
         )
-    assert Signal.RESTOCK not in [s for s, _ in verdict.signals]
+    assert not verdict.has(Signal.RESTOCK)
 
 
 # --- минимумы месяца в дайджесте --------------------------------------------

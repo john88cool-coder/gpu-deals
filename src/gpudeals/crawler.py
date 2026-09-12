@@ -215,7 +215,7 @@ async def crawl(
                 # Ресток по целевой цене обходит is_new_low: прошлый алерт мог
                 # быть дешевле, но «вернулся в наличие по цели» — само по себе
                 # новость, которую владелец просил не терять.
-                restocked = any(s is Signal.RESTOCK for s, _ in verdict.signals)
+                restocked = verdict.has(Signal.RESTOCK)
                 if verdict.should_alert and (is_new_low(conn, offer) or restocked):
                     verdict.perf_vs_class_pct = benchmarks.relative_value_pct(
                         offer.chip, offer.price, verdict.class_median

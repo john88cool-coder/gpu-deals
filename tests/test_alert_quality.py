@@ -13,7 +13,7 @@ import pytest
 
 from gpudeals import crawler
 from gpudeals.config import Settings, Thresholds, WatchedModel
-from gpudeals.evaluate import Signal, evaluate
+from gpudeals.evaluate import Signal, SignalHit, SignalHit, evaluate
 from gpudeals.models import ItemKind, Offer
 from gpudeals.report import format_offer
 from gpudeals.shops import forcecom, sulpak
@@ -207,12 +207,12 @@ def test_report_shows_cross_shop_lines() -> None:
     from gpudeals.evaluate import Verdict
 
     expensive = Verdict(
-        offer=offer("technodom", 480_000), signals=[(Signal.NEW_IN_BUDGET, "тест")],
+        offer=offer("technodom", 480_000), signals=[SignalHit(Signal.NEW_IN_BUDGET)],
         cheaper_elsewhere=("dns", 450_000, "https://dns/p/x"),
     )
     assert "⚡️ дешевле сейчас: dns — 450 000 ₸ (−30 000 ₸)" in format_offer(expensive)
 
-    cheapest = Verdict(offer=offer("dns", 440_000), signals=[(Signal.NEW_IN_BUDGET, "тест")])
+    cheapest = Verdict(offer=offer("dns", 440_000), signals=[SignalHit(Signal.NEW_IN_BUDGET)])
     cheapest.lowest_in_market = True
     assert "🥇 самая низкая цена среди магазинов" in format_offer(cheapest)
 
@@ -223,10 +223,10 @@ def test_alert_buttons_carry_offer_urls() -> None:
     from gpudeals.evaluate import Verdict
 
     expensive = Verdict(
-        offer=offer("technodom", 480_000), signals=[(Signal.NEW_IN_BUDGET, "тест")],
+        offer=offer("technodom", 480_000), signals=[SignalHit(Signal.NEW_IN_BUDGET)],
         cheaper_elsewhere=("dns", 450_000, "https://dns/p/x"),
     )
-    cheapest = Verdict(offer=offer("dns", 440_000), signals=[(Signal.NEW_IN_BUDGET, "тест")])
+    cheapest = Verdict(offer=offer("dns", 440_000), signals=[SignalHit(Signal.NEW_IN_BUDGET)])
 
     buttons = _alert_buttons([expensive, cheapest])
     # Кнопка сообщает три опорных факта: модель, цена, магазин.
@@ -282,8 +282,8 @@ def test_target_price_signal(conn) -> None:
         conn, offer("technodom", 355_000), Thresholds(),
         watch_targets={"rtx5070-12": 365_000},
     )
-    assert Signal.TARGET_PRICE in [s for s, _ in verdict.signals]
-    assert "365 000" in dict(verdict.signals)[Signal.TARGET_PRICE]
+    hits = verdict.hits(Signal.TARGET_PRICE)
+    assert hits and hits[0].target == 365_000
 
 
 def test_target_price_above_goal_stays_silent(conn) -> None:
@@ -291,7 +291,7 @@ def test_target_price_above_goal_stays_silent(conn) -> None:
         conn, offer("technodom", 400_000), Thresholds(),
         watch_targets={"rtx5070-12": 365_000},
     )
-    assert Signal.TARGET_PRICE not in [s for s, _ in verdict.signals]
+    assert not verdict.has(Signal.TARGET_PRICE)
 
 
 def test_target_price_flows_from_config(tmp_path, monkeypatch) -> None:
@@ -310,5 +310,5 @@ def test_target_price_flows_from_config(tmp_path, monkeypatch) -> None:
 
     findings, _, _ = asyncio.run(crawler.crawl(["fake"], config=config))
 
-    signals = [s for v in findings for s, _ in v.signals]
+    signals = [h.signal for v in findings for h in v.signals]
     assert Signal.TARGET_PRICE in signals

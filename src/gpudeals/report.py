@@ -276,30 +276,34 @@ def format_best_deals(
     best_build: tuple[str, int, str, int] | None = None,
 ) -> str:
     """Свод «самая выгодная в каждой группе»: одна позиция на класс с контекстом
-    для решения — насколько ниже медианы, цена за балл, положение цели."""
-    lines = ["<b>🏆 Самые выгодные по группам</b>"]
+    для решения — насколько ниже медианы, цена за балл, положение цели.
+
+    Каждая группа визуально отделена: чип с памятью жирным, цена жирным,
+    название подрезано, медиана/балл/цель — отдельными строками."""
+    lines = ["🏆 <b>Самые выгодные по группам</b>"]
     for class_key, price, shop, title, _url in deals:
-        lines.append(f"<b>{_text(class_key)}</b>: {_money(price)} ({_text(shop)})")
-        lines.append(f"   {_text(title)}")
+        label = chip_label(class_key)
+        lines.append(f"\n🎯 <b>{label}</b> — <b>{_money(price)}</b> · {_text(shop)}")
+        lines.append(f"{_text(_short_title(title, max_len=64))}")
         med = medians.get(class_key)
         if med:
             delta = (med - price) / med * 100
             if delta >= 0.5:
-                lines.append(f"   на {delta:.0f}% дешевле медианы класса ({_money(med)})")
+                lines.append(f"⚡️ на {delta:.0f}% дешевле медианы ({_money(med)})")
         per_point = benchmarks.price_per_point(class_key.split("-")[0], price)
         if per_point:
             lines.append(
-                f"   цена за балл: {str(round(per_point, 1)).replace('.', ',')} ₸"
+                f"⭐️ {str(round(per_point, 1)).replace('.', ',')} ₸/балл"
             )
         if (target := targets.get(class_key)) is not None:
             if price <= target:
-                lines.append(f"   цель {_money(target)} ✓ достигнута")
+                lines.append(f"🎯 цель {_money(target)} ✓ достигнута")
             else:
-                lines.append(f"   до цели {_money(price - target)}")
+                lines.append(f"🎯 до цели {_money(price - target)}")
     if best_build is not None:
         class_key, price, shop, residual = best_build
         lines.append(
-            "🧱 <b>Сборка</b> " + chip_label(class_key) + f": {_money(price)} "
+            "\n🧱 <b>Сборка</b> " + chip_label(class_key) + f": {_money(price)} "
             f"({_text(shop)}) — остаток за платформу {_money(residual)}"
         )
     return "\n".join(lines)

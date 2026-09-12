@@ -95,11 +95,11 @@ def test_send_best_deals_renders_context_and_buttons(db, monkeypatch) -> None:
 
     text = notifier.sent[0]
     assert "Самые выгодные по группам" in text
-    assert "<b>rtx5070-12</b>: 340 000 ₸ (sulpak)" in text
-    assert "дешевле медианы класса" in text
+    assert "🎯 <b>RTX 5070</b> — <b>340 000 ₸</b> · sulpak" in text
+    assert "дешевле медианы" in text
     assert "цель 365 000 ₸ ✓ достигнута" in text, "340 000 ≤ 365 000"
     # Кнопки: по строке на каждую группу.
-    assert notifier.buttons[0] == [[("Открыть в sulpak", "https://e.kz/1")]]
+    assert notifier.buttons[0] == [[("RTX 5070 · 340 000 ₸ · sulpak", "https://e.kz/1")]]
 
 
 def test_send_best_deals_includes_build(db) -> None:

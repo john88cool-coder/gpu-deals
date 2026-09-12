@@ -355,7 +355,11 @@ def send_best_deals(notifier: Notifier) -> None:
     deals.sort(key=lambda d: order.get(d[0], 99))
 
     text = format_best_deals(deals, medians, targets, best_build=build)
-    buttons = [[(f"Открыть в {shop}", url)] for _ck, _p, shop, _t, url in deals]
+    # Кнопки сообщают модель, цену и магазин: «RTX 5070 · 367 850 ₸ · dns».
+    buttons = [
+        [(f"{chip_label(ck)} · {price:,} ₸ · {shop}".replace(",", " "), url)]
+        for ck, price, shop, _t, url in deals
+    ]
     notifier.send(text, buttons=buttons or None)
 
 

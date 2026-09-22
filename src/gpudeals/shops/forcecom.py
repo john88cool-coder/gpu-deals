@@ -23,6 +23,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .images import card_image
 from .paging import new_offers
 
 SHOP = "forcecom"
@@ -97,6 +98,7 @@ def parse(html: str, builds_only: bool = False) -> list[Offer]:
         offers.append(
             Offer(
                 shop=SHOP,
+                image_url=card_image(block, BASE),
                 kind=ItemKind.BUILD if is_build else ItemKind.CARD,
                 title=title,
                 price=price,

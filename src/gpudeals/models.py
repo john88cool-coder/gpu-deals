@@ -48,6 +48,7 @@ class Offer:
     in_stock: bool = True
     stock_note: str | None = None
     sku: str | None = None
+    image_url: str | None = None
 
     @property
     def match_level(self) -> MatchLevel:

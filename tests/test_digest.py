@@ -160,11 +160,11 @@ def test_format_market_digest_renders_all_sections(conn) -> None:
 
     assert "📊 Дайджест рынка за неделю" in text
     assert "Медианы классов" in text
-    assert "rtx5070-12: 355 000 ₸ (—" in text, "нет прошлой недели — прочерк"
+    assert "RTX 5070 · 12 ГБ: 355 000 ₸ (—" in text, "нет прошлой недели — прочерк"
     assert "Самое сильное снижение недели" in text
     # Экранирование HTML: заголовок магазина приходит с <, &.
     assert "Palit &lt;5060 Ti&gt; &amp; Infinity" in text
-    assert "(dns)" in text
+    assert "(DNS)" in text
     assert "−8% за неделю" in text
     assert "Лидеры по цене за балл" in text
 

@@ -55,7 +55,7 @@ def test_heartbeat_surfaces_shop_with_no_records(db) -> None:
     crawler.send_heartbeat(notifier, shops=["technodom", "dns"])
 
     assert "1/2" in notifier.sent[0]
-    assert "dns: ошибка" in notifier.sent[0]
+    assert "DNS: ⚠️ ошибка" in notifier.sent[0]
 
 
 def test_heartbeat_covers_all_shops_by_default(db) -> None:

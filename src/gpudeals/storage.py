@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS observations (
     in_stock      INTEGER NOT NULL DEFAULT 1,
     stock_note    TEXT,
     sku           TEXT
+    ,image_url    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_obs_identity ON observations(identity, observed_at);
 CREATE INDEX IF NOT EXISTS idx_obs_class    ON observations(kind, class_key, observed_at);
@@ -72,6 +73,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     до появления колонки, реально уходили в Telegram — помечаем доставленными,
     иначе первый запуск после обновления переотправил бы всю старую историю.
     """
+    observation_columns = {row[1] for row in conn.execute("PRAGMA table_info(observations)")}
+    if "image_url" not in observation_columns:
+        conn.execute("ALTER TABLE observations ADD COLUMN image_url TEXT")
     columns = {row[1] for row in conn.execute("PRAGMA table_info(alerts)")}
     if "delivered_at" not in columns:
         conn.execute("ALTER TABLE alerts ADD COLUMN delivered_at TEXT")
@@ -99,7 +103,7 @@ def save_observations(conn: sqlite3.Connection, offers: Iterable[Offer]) -> int:
         (
             stamp, o.shop, o.kind.value, o.identity, o.title, o.price, o.url,
             o.class_key, o.part_number, o.chip, o.memory_gb, o.brand,
-            o.shop_old_price, o.shop_discount_pct, int(o.in_stock), o.stock_note, o.sku,
+            o.shop_old_price, o.shop_discount_pct, int(o.in_stock), o.stock_note, o.sku, o.image_url,
         )
         for o in offers
     ]
@@ -107,8 +111,8 @@ def save_observations(conn: sqlite3.Connection, offers: Iterable[Offer]) -> int:
         """INSERT INTO observations (
                observed_at, shop, kind, identity, title, price, url,
                class_key, part_number, chip, memory_gb, brand,
-               shop_old_price, shop_discount_pct, in_stock, stock_note, sku)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               shop_old_price, shop_discount_pct, in_stock, stock_note, sku, image_url)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         rows,
     )
     return len(rows)

@@ -25,6 +25,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .images import card_image
 from .paging import new_offers
 
 SHOP = "shop.kz"
@@ -86,6 +87,7 @@ def parse(html: str) -> list[Offer]:
         offers.append(
             Offer(
                 shop=SHOP,
+                image_url=card_image(card, BASE),
                 kind=ItemKind.BUILD if looks_like_build(title) else ItemKind.CARD,
                 title=title,
                 price=int(price),

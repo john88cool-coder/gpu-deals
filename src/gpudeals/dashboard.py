@@ -63,7 +63,7 @@ def _svg_sparkline(points: list[tuple[str, int]], width: int = 640, height: int 
     return (
         f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}" '
         f'role="img" aria-label="Динамика цены">'
-        f'<polyline points="{polyline}" fill="none" stroke="#58a6ff" stroke-width="2"/>'
+        f'<polyline points="{polyline}" fill="none" class="chart-line" stroke="currentColor" stroke-width="2"/>'
         f'<text x="0" y="{height - 1}" class="axis">{_esc(first_day)}</text>'
         f'<text x="{width}" y="{height - 1}" class="axis" text-anchor="end">'
         f'{_esc(last_day)}</text>'
@@ -73,128 +73,7 @@ def _svg_sparkline(points: list[tuple[str, int]], width: int = 640, height: int 
     )
 
 
-def render(conn: sqlite3.Connection, out_path) -> int:  # noqa: ANN001 — pathlib
-    """Собирает HTML и пишет в файл. Возвращает число классов на странице."""
-    skip = settings.thresholds.skip_memory_gb
-    chips_q = ",".join("?" * len(INTERESTED_CHIPS))
-    since = (datetime.now(UTC) - timedelta(days=30)).isoformat(timespec="seconds")
-
-    current = {}
-    for row in conn.execute(
-        f"""SELECT class_key, MIN(price) AS price, shop
-            FROM observations
-            WHERE kind = 'card' AND in_stock = 1 AND chip IN ({chips_q})
-                  AND (memory_gb IS NULL OR memory_gb > ?)
-                  AND class_key IS NOT NULL AND observed_at >= ?
-            GROUP BY class_key""",
-        (*sorted(INTERESTED_CHIPS), skip, since),
-    ):
-        current[row["class_key"]] = (row["price"], row["shop"])
-
-    targets = {
-        m.class_key: m.target_price
-        for m in settings.watchlist
-        if m.target_price is not None
-    }
-    watched = list(settings.watched_class_keys)
-
-    sections: list[str] = []
-    for class_key in sorted(current, key=lambda ck: (ck not in watched, ck)):
-        price, shop = current[class_key]
-        points = _class_daily_medians(conn, class_key)
-        spark = _svg_sparkline(points)
-        target = targets.get(class_key)
-        if target is None:
-            target_line = ""
-        elif price <= target:
-            target_line = f' · цель {_fmt(target)} ₸ <span class="ok">✓ достигнута</span>'
-        else:
-            target_line = f' · до цели {_fmt(price - target)} ₸'
-        sections.append(
-            f'<section><h2>{_esc(class_key)}</h2>'
-            f'<p class="price">от {_fmt(price)} ₸ · {_esc(shop)}{target_line}</p>'
-            f'{spark}</section>'
-        )
-
-    leaders: list[tuple[str, str, int, float]] = []
-    for row in conn.execute(
-        f"""SELECT identity, MAX(observed_at) AS at, price, shop, title, chip, class_key
-            FROM observations
-            WHERE kind = 'card' AND in_stock = 1 AND chip IN ({chips_q})
-                  AND (memory_gb IS NULL OR memory_gb > ?) AND observed_at >= ?
-            GROUP BY identity""",
-        (*sorted(INTERESTED_CHIPS), skip, since),
-    ):
-        rating = benchmarks.rating_for(row["class_key"], row["chip"])
-        if rating and rating.g3d:
-            leaders.append((row["title"], row["shop"], row["price"],
-                            row["price"] / rating.g3d))
-    leaders.sort(key=lambda item: item[3])
-    leader_rows = "".join(
-        f"<tr><td>{_esc(title[:70])}</td><td>{_esc(shop)}</td>"
-        f"<td>{_fmt(price)} ₸</td>"
-        f"<td>{str(round(pp, 1)).replace('.', ',')}</td></tr>"
-        for title, shop, price, pp in leaders[:10]
-    )
-
-    generated = datetime.now(UTC).strftime("%d.%m.%Y %H:%M UTC")
-
-    recent_alerts = conn.execute(
-        """SELECT a.alerted_at AS at, a.alerted_price AS price, o.title, o.shop
-           FROM alerts a
-           LEFT JOIN observations o
-                  ON o.identity = a.identity
-                 AND o.observed_at = (
-                     SELECT MAX(observed_at) FROM observations
-                     WHERE identity = a.identity
-                 )
-           ORDER BY a.alerted_at DESC
-           LIMIT 10"""
-    ).fetchall()
-    alert_rows = "".join(
-        f"<tr><td>{_esc(at[:16].replace('T', ' '))}</td>"
-        f"<td>{_esc(title[:60])}</td><td>{_esc(shop)}</td>"
-        f"<td>{_fmt(price)} ₸</td></tr>"
-        for at, price, title, shop in recent_alerts
-    )
-    alerts_section = ""
-    if alert_rows:
-        alerts_section = (
-            "<h2>Последние алерты бота</h2>"
-            "<table><tr><th>Когда</th><th>Модель</th><th>Магазин</th>"
-            "<th>Цена</th></tr>"
-            f"{alert_rows}</table>"
-        )
-
-    page = f"""<!DOCTYPE html>
-<html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gpu-deals: рынок видеокарт Казахстана</title>
-<style>
- body {{ background: #0d1117; color: #c9d1d9; font-family: sans-serif;
-        max-width: 760px; margin: 0 auto; padding: 1rem; }}
- h1, h2 {{ color: #e6edf3; }}
- section {{ border-top: 1px solid #21262d; padding-top: .5rem; }}
- .price {{ color: #e6edf3; font-size: 1.05rem; }}
- .axis {{ fill: #8b949e; font-size: 10px; }}
- .ok {{ color: #3fb950; }}
- table {{ border-collapse: collapse; width: 100%; }}
- td, th {{ border-bottom: 1px solid #21262d; padding: .3rem .4rem; text-align: left; }}
- footer {{ color: #8b949e; font-size: .85rem; }}
-</style></head><body>
-<h1>Рынок видеокарт Казахстана</h1>
-<p>Минимумы за последние 30 дней по интересующим сериям. Источник — бот
-gpu-deals: семь магазинов, обходы по расписанию, цены только по позициям
-в наличии.</p>
-{"".join(sections)}
-<h2>Лидеры по цене за балл PassMark</h2>
-<table><tr><th>Модель</th><th>Магазин</th><th>Цена</th><th>₸/балл</th></tr>
-{leader_rows}</table>
-{alerts_section}
-<footer>Сгенерировано {generated} · обновляется еженедельно</footer>
-</body></html>"""
-
-    out = Path(out_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(page, encoding="utf-8")
-    return len(sections)
+def render(conn: sqlite3.Connection, out_path) -> int:
+    """Build the interactive, standalone dashboard from a read-only snapshot."""
+    from .dashboard_page import render_page
+    return render_page(conn, Path(out_path))

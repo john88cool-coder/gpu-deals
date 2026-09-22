@@ -20,6 +20,7 @@ from .report import (
     MarketDigest,
     _short_title,
     chip_label,
+    shop_label,
     format_best_deals,
     format_breakage,
     format_digest,
@@ -269,15 +270,17 @@ def _alert_buttons(findings: list[Verdict]) -> list[list[tuple[str, str]]] | Non
         row = [(_button_label(offer.title, offer.price, offer.shop), offer.url)]
         if verdict.cheaper_elsewhere:
             shop, price, url = verdict.cheaper_elsewhere
-            row.append((f"⚡️ {chip_label(offer.class_key)} · {price:,}".replace(",", " ") +
-                        f" ₸ · {shop}".replace(" ₸ ", " ₸ "), url))
+            row.append((
+                f"↘️ {chip_label(offer.class_key)} · {price:,} ₸ · {shop_label(shop)}".replace(",", " "),
+                url,
+            ))
         rows.append(row)
     return rows or None
 
 
 def _button_label(title: str, price: int, shop: str) -> str:
     model = _short_title(title, max_len=34)
-    label = f"{model} · {price:,} ₸ · {shop}".replace(",", " ")
+    label = f"{model} · {price:,} ₸ · {shop_label(shop)}".replace(",", " ")
     return label[:64]
 
 
@@ -351,13 +354,13 @@ def send_best_deals(notifier: Notifier) -> None:
         if model.target_price is not None
     }
     # Порядок свода — порядок watchlist: интересы владельца сверху.
-    order = {ck: i for i, ck in enumerate(default_settings.watched_class_keys)}
+    order = {model.class_key: i for i, model in enumerate(default_settings.watchlist)}
     deals.sort(key=lambda d: order.get(d[0], 99))
 
     text = format_best_deals(deals, medians, targets, best_build=build)
     # Кнопки сообщают модель, цену и магазин: «RTX 5070 · 367 850 ₸ · dns».
     buttons = [
-        [(f"{chip_label(ck)} · {price:,} ₸ · {shop}".replace(",", " "), url)]
+        [(f"{chip_label(ck)} · {price:,} ₸ · {shop_label(shop)}".replace(",", " "), url)]
         for ck, price, shop, _t, url in deals
     ]
     notifier.send(text, buttons=buttons or None)
@@ -502,7 +505,17 @@ def _market_digest(conn) -> MarketDigest:
                     per_point=row["price"] / rating.g3d,
                 )
             )
-    value_leaders = sorted(candidates, key=lambda v: v.per_point)[:_DIGEST_TOP_VALUE]
+    value_leaders: list[DigestValue] = []
+    seen_offers: set[tuple[str, int]] = set()
+    for leader in sorted(candidates, key=lambda v: v.per_point):
+        key = (_short_title(leader.title).casefold(), leader.price)
+        if key in seen_offers or leader.shop == "e-katalog":
+            # e-katalog — агрегатор: его «цена» — нижняя граница чужих предложений.
+            continue
+        seen_offers.add(key)
+        value_leaders.append(leader)
+        if len(value_leaders) == _DIGEST_TOP_VALUE:
+            break
 
     # Минимумы за месяц наблюдений: ориентир «ниже пока не бывало». Окно —
     # весь удерживаемый практикой месяц; та же фильтрация интересов. Рядом —
@@ -548,7 +561,7 @@ def send_digest(notifier: Notifier) -> None:
     по цене за балл. Читает локальную базу, обхода не делает."""
     with connect() as conn:
         data = _market_digest(conn)
-    notifier.send(format_market_digest(data))
+    notifier.send(format_market_digest(data, default_settings.thresholds.card_budget))
 
 
 def send_watchdog(
@@ -569,11 +582,11 @@ def send_watchdog(
         for shop in (shops or list(REGISTRY)):
             last = last_successful_crawl(conn, shop)
             if last is None:
-                stale.append(f"{shop}: успешных обходов не зафиксировано")
+                stale.append(f"{shop_label(shop)}: успешных обходов не зафиксировано")
                 continue
             age = (datetime.now(UTC) - datetime.fromisoformat(last)).total_seconds() / 3600
             if age > max_age_hours:
-                stale.append(f"{shop}: последний успешный обход {age:.0f} ч назад")
+                stale.append(f"{shop_label(shop)}: последний успешный обход {age:.0f} ч назад")
 
     if not stale:
         return False

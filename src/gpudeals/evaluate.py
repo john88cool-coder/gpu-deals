@@ -194,6 +194,21 @@ def evaluate(
             else:
                 verdict.lowest_in_market = True
 
+    # «Новинка» без других оснований — лишь факт появления позиции. Если она
+    # дороже медианы класса или заметно дороже другого магазина прямо сейчас,
+    # это не находка: alfa обходится на 12 страниц из 24, позиции кочуют между
+    # страницами, и каждая «новая» будила бота (39 из 53 алертов за неделю
+    # 2026-09-16…22 — alfa, в основном такие «новинки»).
+    if [hit.signal for hit in verdict.signals] == [Signal.NEW_IN_BUDGET]:
+        above_median = verdict.class_median is not None and offer.price > verdict.class_median
+        pricier_elsewhere = (
+            verdict.cheaper_elsewhere is not None
+            and offer.price - verdict.cheaper_elsewhere[1]
+            > offer.price * thresholds.new_item_elsewhere_pct / 100
+        )
+        if above_median or pricier_elsewhere:
+            verdict.signals = []
+
     # Мягкий потолок на карту: выше — не молчим, а помечаем превышение.
     if offer.price > budget:
         verdict.over_budget_by = offer.price - budget
@@ -207,7 +222,12 @@ def evaluate(
     return verdict
 
 
+# Повтор — только при ощутимом снижении: копеечные колебания пересчётных цен
+# (alfa: 334 134 → 334 133 ₸) не новость.
+_REALERT_MIN_STEP = 0.01
+
+
 def is_new_low(conn: sqlite3.Connection, offer: Offer) -> bool:
-    """Повтор по позиции допустим только при новом снижении."""
+    """Повтор по позиции допустим только при новом ощутимом снижении."""
     previous = last_alert(conn, offer.identity)
-    return previous is None or offer.price < previous
+    return previous is None or offer.price <= previous * (1 - _REALERT_MIN_STEP)

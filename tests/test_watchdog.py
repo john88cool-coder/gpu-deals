@@ -49,7 +49,7 @@ def test_watchdog_alerts_on_stale_crawl(db) -> None:
 
     notifier = Recording()
     assert crawler.send_watchdog(notifier, max_age_hours=12, shops=["technodom", "dns"]) is True
-    assert "technodom: последний успешный обход 30 ч назад" in notifier.sent[0]
+    assert "Technodom: последний успешный обход 30 ч назад" in notifier.sent[0]
     assert "dns" not in notifier.sent[0]
 
 
@@ -69,7 +69,7 @@ def test_watchdog_flags_shop_without_any_crawl(db) -> None:
     notifier = Recording()
     crawler.send_watchdog(notifier, max_age_hours=12, shops=["technodom", "kaspi"])
 
-    assert "kaspi: успешных обходов не зафиксировано" in notifier.sent[0]
+    assert "Kaspi: успешных обходов не зафиксировано" in notifier.sent[0]
 
 
 def test_watchdog_ignores_failed_crawls(tmp_path) -> None:

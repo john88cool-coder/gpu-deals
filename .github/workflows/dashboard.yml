@@ -2,6 +2,12 @@ name: dashboard
 # Еженедельная статическая страница рынка (графики медиан, минимумы, лидеры
 # по цене за балл) на GitHub Pages. Читает локальную базу, обхода нет.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/gpudeals/dashboard*'
+      - 'src/gpudeals/dashboard_assets/**'
+      - '.github/workflows/dashboard.yml'
   schedule:
     - cron: '10 4 * * 1'
   workflow_dispatch:

@@ -94,12 +94,12 @@ def test_send_best_deals_renders_context_and_buttons(db, monkeypatch) -> None:
     crawler.send_best_deals(notifier)
 
     text = notifier.sent[0]
-    assert "Самые выгодные по группам" in text
-    assert "🎯 <b>RTX 5070</b> — <b>340 000 ₸</b> · sulpak" in text
-    assert "дешевле медианы" in text
-    assert "цель 365 000 ₸ ✓ достигнута" in text, "340 000 ≤ 365 000"
+    assert "Лучшая цена сейчас по каждой модели" in text
+    assert "✅ <b>RTX 5070 · 12 ГБ</b> — <b>340 000 ₸</b> · Sulpak" in text
+    assert "к медиане" in text
+    assert "цель 365 000 ₸ достигнута" in text, "340 000 ≤ 365 000"
     # Кнопки: по строке на каждую группу.
-    assert notifier.buttons[0] == [[("RTX 5070 · 340 000 ₸ · sulpak", "https://e.kz/1")]]
+    assert notifier.buttons[0] == [[("RTX 5070 · 340 000 ₸ · Sulpak", "https://e.kz/1")]]
 
 
 def test_send_best_deals_includes_build(db) -> None:
@@ -116,8 +116,8 @@ def test_send_best_deals_includes_build(db) -> None:
     notifier = Recording()
     crawler.send_best_deals(notifier)
 
-    assert "🧱 <b>Сборка</b> RTX 5070" in notifier.sent[0]
-    assert "остаток за платформу 470 000 ₸" in notifier.sent[0]
+    assert "🧱 <b>Сборка с RTX 5070</b>" in notifier.sent[0]
+    assert "за платформу без карты: 470 000 ₸" in notifier.sent[0]
 
 
 def test_format_best_deals_escapes_titles() -> None:

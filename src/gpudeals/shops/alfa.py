@@ -23,6 +23,7 @@ import re
 from selectolax.parser import HTMLParser
 
 from ..models import ItemKind, Offer
+from .images import card_image
 from ..normalize import (
     class_key,
     extract_brand,
@@ -102,6 +103,7 @@ def parse(html: str, builds_only: bool = False) -> list[Offer]:
         offers.append(
             Offer(
                 shop=SHOP,
+                image_url=card_image(block, BASE),
                 kind=ItemKind.BUILD if is_build else ItemKind.CARD,
                 title=title,
                 price=price,

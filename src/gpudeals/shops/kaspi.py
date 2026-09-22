@@ -27,6 +27,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .images import json_image
 from .paging import new_offers
 
 SHOP = "kaspi"
@@ -52,6 +53,7 @@ def _card_to_offer(card: dict) -> Offer | None:
     shop_link = card.get("shopLink") or ""
     return Offer(
         shop=SHOP,
+        image_url=json_image(card.get("images") or card.get("image"), "https://kaspi.kz"),
         kind=ItemKind.BUILD if looks_like_build(title) else ItemKind.CARD,
         title=title,
         price=int(price),

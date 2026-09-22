@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPU deals — рынок видеокарт Казахстана</title>
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Рынок видеокарт Казахстана — реальные наблюдения, цели и PassMark с ежедневными обходами.">
+<meta name="theme-color" content="#143d2f">
+<meta property="og:title" content="GPU deals — рынок видеокарт Казахстана">
+<meta property="og:description" content="Реальные цены по 9 магазинам, цели и PassMark.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23143d2f'/><circle cx='16' cy='16' r='6' fill='white'/></svg>">
+<script>try{const t=localStorage.getItem('gpu-deals-theme');document.documentElement.dataset.theme=t==='light'||t==='dark'?t:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}catch{document.documentElement.dataset.theme='light'}</script>
+<style>@@css@@</style></head><body>
+<a class="skip" href="#catalog">К предложениям</a>
+<header><div class="header-inner">
+  <a class="brand" href="#"><span class="brand-mark" aria-hidden="true"><span class="brand-mark__dot"></span></span><span>GPU</span><span class="brand-light">deals</span><span class="brand-sub">KZ</span></a>
+  <nav aria-label="Навигация"><a href="#catalog">Каталог</a><a href="#market">Рынок</a><a href="#value">PassMark</a><a href="#alerts">Сигналы</a></nav>
+  <div class="header-actions">
+    <button id="share" type="button" class="ghost-btn" title="Скопировать ссылку с фильтрами">⧉ Поделиться</button>
+    <button id="theme" type="button" hidden><span class="theme-ico" aria-hidden="true">◐</span><span>Тема</span></button>
+  </div>
+</div></header>
+<main>
+  <section class="hero" aria-label="Вступление">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="dot"></span>Казахстан · 9 магазинов · ежедневно</p>
+      <h1>Больше производительности.<br><span>По проверенной цене.</span></h1>
+      <p class="lead">Видеокарты и сборки — только живые наблюдения. Цели, медианы классов и PassMark без магазинных «скидок».</p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#catalog">Найти карту →</a>
+        <a class="btn ghost" href="#market">Динамика рынка</a>
+        <button id="export" type="button" class="btn ghost">Экспорт CSV</button>
+      </div>
+      <p class="freshness">Срез: <strong>@@observed@@ UTC</strong> · Сборка: @@generated@@ · <span id="live-count">@@count@@ предложений</span></p>
+    </div>
+    <div class="hero-side">
+      <div class="hero-stats" role="list">
+        <div class="kpi" role="listitem"><span>Предложений · 30 дней</span><strong>@@count@@</strong></div>
+        <div class="kpi" role="listitem"><span>Магазинов</span><strong>@@shop_count@@</strong></div>
+        <div class="kpi accent" role="listitem"><span>По цели · свежо</span><strong>@@target_count@@</strong></div>
+      </div>
+      <div class="panel soft">
+        <p class="eyebrow">Прогресс к цели</p>
+        <div class="watch-wrap">@@watch@@</div>
+        <p class="hint">Цель — ваша личная планка из <code>config.py</code>. Карточка зеленеет, когда цена ≤ цели и данные свежие.</p>
+      </div>
+      <div class="hero-note">Старше 24 часов — «Требует проверки». Цена и наличие могли измениться. История — по одному предложению в одном магазине.</div>
+    </div>
+  </section>
+
+  <section id="catalog">
+    <div class="section-heading"><div><p class="eyebrow">Каталог</p><h2>Найдите свой апгрейд</h2><p class="section-sub">Поиск по модели/партномеру, фильтры и сортировка. URL хранит выбор — делитесь ссылкой.</p></div>
+    <p id="count" role="status" aria-live="polite">@@count@@ предложений</p></div>
+
+    <form id="filters" class="panel filters glass" hidden aria-label="Фильтры каталога">
+      <div class="filter-row">
+        <label class="search">Поиск<input id="search" type="search" placeholder="RTX 5070, Gigabyte, GV-N…"><span class="hint">Нажмите <kbd>/</kbd> для фокуса</span></label>
+        <label>Сортировка<select id="sort"><option value="price">Сначала дешевле</option><option value="pp">Цена за балл</option><option value="title">По названию</option></select></label>
+      </div>
+      <div class="filter-row">
+        <label>Тип<select id="kind"><option value="">Все</option><option value="card">Видеокарты</option><option value="build">Сборки</option></select></label>
+        <label>Магазин<select id="shop"><option value="">Все магазины</option>@@shops@@</select></label>
+        <label>Чип<select id="chip"><option value="">Все чипы</option>@@chips@@</select></label>
+        <label>Цена до, ₸<input id="budget" type="number" min="0" step="1000" placeholder="Без лимита"></label>
+      </div>
+      <div class="filter-row options">
+        <label><input id="stock" type="checkbox"> В наличии</label>
+        <label><input id="fresh" type="checkbox"> За 24 часа</label>
+        <label><input id="target" type="checkbox"> Цель ✓</label>
+        <label><input id="favonly" type="checkbox"> Избранное</label>
+        <div class="spacer"></div>
+        <button type="button" id="clear-compare" class="ghost-btn sm">Снять сравнение</button>
+        <button type="reset" class="reset">Сбросить</button>
+      </div>
+    </form>
+
+    <noscript><p class="notice">Все предложения ниже. Для фильтров включите JavaScript.</p></noscript>
+    <div id="products" class="product-grid">@@cards@@</div>
+    <div class="more-row" id="more-row" hidden><button id="more" type="button" class="btn ghost">Показать ещё</button></div>
+    <p id="empty" class="panel empty" hidden>Ничего не найдено. Ослабьте фильтры.</p>
+  </section>
+
+  <section id="market"><div class="section-heading"><div><p class="eyebrow">Рынок · 30 дней</p><h2>Динамика классов</h2><p class="section-sub">Дневные медианы отдельных карт. Сборки не входят. Точки — медиана минимумов позиций за день.</p></div></div><div class="market-grid">@@market@@</div></section>
+
+  <section id="value"><div class="section-heading"><div><p class="eyebrow">Выгода</p><h2>Лидеры по цене за балл</h2><p class="section-sub">Только карты в наличии за 24 часа. Меньше ₸/балл — выгоднее по PassMark G3D.</p></div></div>
+  <div class="panel table-wrap glass" tabindex="0" role="region" aria-label="PassMark"><table><caption class="sr-only">Лидеры по цене за балл</caption><thead><tr><th>Модель</th><th>Магазин</th><th>Цена</th><th>₸/балл</th></tr></thead><tbody>@@leaders@@</tbody></table></div></section>
+
+  @@alerts_section@@
+
+  <div id="compare-bar" class="compare-bar" hidden>
+    <div class="compare-inner">
+      <strong id="compare-count">0 выбрано</strong>
+      <span class="muted">до 4 карт</span>
+      <div class="spacer"></div>
+      <button id="compare-open" type="button" class="btn primary sm">Сравнить</button>
+      <button id="compare-clear" type="button" class="ghost-btn sm">Очистить</button>
+    </div>
+  </div>
+
+  <dialog id="compare-dialog" aria-label="Сравнение">
+    <form method="dialog" class="compare-head"><strong>Сравнение</strong><button class="ghost-btn sm" value="cancel">Закрыть ✕</button></form>
+    <div id="compare-table" class="table-wrap"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <footer><span>GPU deals · Казахстан · ₸ KZT</span><span>Статический срез · еженедельно на GitHub Pages</span></footer>
+</main>
+<script type="application/json" id="gpu-data">@@json@@</script>
+<script>@@js@@</script></body></html>

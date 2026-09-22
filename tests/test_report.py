@@ -28,7 +28,7 @@ def test_shop_discount_is_marked_unverified() -> None:
         signals=[SignalHit(Signal.NEW_IN_BUDGET)],
     )
     text = format_offer(verdict)
-    assert "не проверено, справочно" in text
+    assert "не проверена" in text
 
 
 def test_prices_are_formatted_with_spaces() -> None:
@@ -83,7 +83,7 @@ def test_build_residual_explains_what_is_included() -> None:
     )
     text = format_offer(verdict)
     assert "412 010 ₸" in text
-    assert "процессор" in text
+    assert "за платформу без карты" in text
 
 
 def test_over_budget_is_flagged_not_silenced() -> None:
@@ -98,14 +98,14 @@ def test_digest_separates_cards_and_builds() -> None:
         signals=[SignalHit(Signal.NEW_IN_BUDGET)],
     )
     text = format_digest([cards, build])
-    assert "Находок: 2" in text
+    assert "2 находки" in text
     assert "Видеокарты" in text
     assert "Готовые сборки" in text
 
 
 def test_breakage_message_names_shop_and_previous_count() -> None:
     text = format_breakage("technodom", 58)
-    assert "technodom" in text
+    assert "Technodom" in text
     assert "58" in text
 
 
@@ -113,8 +113,8 @@ def test_heartbeat_counts_alive_shops() -> None:
     text = format_heartbeat([("technodom", 81, True), ("kaspi", 49, True), ("dns", 0, False)])
     assert "2/3" in text
     assert "130" in text
-    assert "kaspi: 49" in text
-    assert "dns: ошибка" in text
+    assert "Kaspi: 49" in text
+    assert "DNS: ⚠️ ошибка" in text
 
 
 def test_shop_text_is_escaped_for_html_mode() -> None:
@@ -136,7 +136,7 @@ def test_shop_text_is_escaped_for_html_mode() -> None:
     assert "Strix &amp; TUF" in text
     assert "под заказ &lt;7 дней&gt;" in text
     # Ссылка остаётся разметкой, но её содержимое экранировано.
-    assert "technodom" in text
+    assert "Technodom" in text
     assert "Новинка в бюджете" in text
     # Ни одного необработанного угла из данных магазина.
     assert "<ROG>" not in text

@@ -210,7 +210,7 @@ def test_report_shows_cross_shop_lines() -> None:
         offer=offer("technodom", 480_000), signals=[SignalHit(Signal.NEW_IN_BUDGET)],
         cheaper_elsewhere=("dns", 450_000, "https://dns/p/x"),
     )
-    assert "⚡️ дешевле сейчас: dns — 450 000 ₸ (−30 000 ₸)" in format_offer(expensive)
+    assert "↘️ дешевле в DNS: 450 000 ₸ (−30 000 ₸)" in format_offer(expensive)
 
     cheapest = Verdict(offer=offer("dns", 440_000), signals=[SignalHit(Signal.NEW_IN_BUDGET)])
     cheapest.lowest_in_market = True
@@ -230,10 +230,10 @@ def test_alert_buttons_carry_offer_urls() -> None:
 
     buttons = _alert_buttons([expensive, cheapest])
     # Кнопка сообщает три опорных факта: модель, цена, магазин.
-    assert buttons[0][0] == ("RTX 5070 technodom · 480 000 ₸ · technodom",
+    assert buttons[0][0] == ("RTX 5070 technodom · 480 000 ₸ · Technodom",
                              "https://example.kz")
-    assert buttons[0][1] == ("⚡️ RTX 5070 · 450 000 ₸ · dns", "https://dns/p/x")
-    assert buttons[1] == [("RTX 5070 dns · 440 000 ₸ · dns", "https://example.kz")]
+    assert buttons[0][1] == ("↘️ RTX 5070 · 450 000 ₸ · DNS", "https://dns/p/x")
+    assert buttons[1] == [("RTX 5070 dns · 440 000 ₸ · DNS", "https://example.kz")]
 
 
 def test_alert_buttons_absent_without_findings() -> None:
@@ -251,7 +251,7 @@ def test_crawl_overlay_counts_unsaved_shops(tmp_path, monkeypatch) -> None:
 
         @staticmethod
         async def fetch(client):  # noqa: ANN001
-            return [offer("shopa", 480_000)]
+            return [offer("shopa", 440_000)]
 
     class ShopB:
         SHOP = "shopb"
@@ -268,7 +268,7 @@ def test_crawl_overlay_counts_unsaved_shops(tmp_path, monkeypatch) -> None:
     findings, _, _ = asyncio.run(crawler.crawl(["shopa", "shopb"]))
 
     by_price = {v.offer.price: v for v in findings}
-    expensive = by_price[480_000]
+    expensive = by_price[440_000]
     assert expensive.cheaper_elsewhere == ("shopb", 430_000, "https://example.kz")
     assert by_price[430_000].lowest_in_market is True
 
@@ -312,3 +312,29 @@ def test_target_price_flows_from_config(tmp_path, monkeypatch) -> None:
 
     signals = [h.signal for v in findings for h in v.signals]
     assert Signal.TARGET_PRICE in signals
+
+
+def test_new_item_pricier_than_other_shop_is_silent(tmp_path, monkeypatch) -> None:
+    """«Новинка» дороже другого магазина больше чем на 3% — не находка (шум alfa)."""
+
+    class ShopA:
+        SHOP = "shopa"
+
+        @staticmethod
+        async def fetch(client):  # noqa: ANN001
+            return [offer("shopa", 480_000)]
+
+    class ShopB:
+        SHOP = "shopb"
+
+        @staticmethod
+        async def fetch(client):  # noqa: ANN001
+            return [offer("shopb", 430_000)]
+
+    monkeypatch.setitem(crawler.REGISTRY, "shopa", ShopA)
+    monkeypatch.setitem(crawler.REGISTRY, "shopb", ShopB)
+    monkeypatch.setattr("gpudeals.storage.DB_PATH", tmp_path / "db.sqlite3")
+
+    findings, _, _ = asyncio.run(crawler.crawl(["shopa", "shopb"]))
+
+    assert [v.offer.price for v in findings] == [430_000]

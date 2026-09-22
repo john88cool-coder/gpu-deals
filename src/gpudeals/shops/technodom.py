@@ -24,6 +24,7 @@ from ..normalize import (
     extract_part_number,
     looks_like_build,
 )
+from .images import json_image
 from .paging import new_offers
 
 SHOP = "technodom"
@@ -99,6 +100,7 @@ def parse(html: str, *, builds_only: bool = False) -> list[Offer]:
         offers.append(
             Offer(
                 shop=SHOP,
+                image_url=_product_image(item),
                 kind=kind,
                 title=title,
                 price=price,
@@ -116,6 +118,13 @@ def parse(html: str, *, builds_only: bool = False) -> list[Offer]:
             )
         )
     return offers
+
+
+def _product_image(item: dict) -> str | None:
+    images = item.get("images") or []
+    if images and isinstance(images[0], str) and re.fullmatch(r"[\w-]+", images[0]):
+        return f"https://api.technodom.kz/f3/api/v1/images/{images[0]}.webp"
+    return json_image(images or item.get("image"), "https://www.technodom.kz")
 
 
 def _product_url(item: dict) -> str:

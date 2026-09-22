@@ -134,7 +134,7 @@ def test_digest_renders_monthly_minima(tmp_path) -> None:
 
     text = format_market_digest(data)
     assert "Минимумы за месяц наблюдений" in text
-    assert "rtx5070-12: 294 590 ₸ (sulpak)" in text
+    assert "RTX 5070 · 12 ГБ: 294 590 ₸ (Sulpak)" in text
 
 
 # --- catch-up ----------------------------------------------------------------
@@ -266,7 +266,7 @@ def test_dashboard_renders_recent_alerts(tmp_path, monkeypatch) -> None:
     benchmarks._ratings.cache_clear()
 
     html = out.read_text(encoding="utf-8")
-    assert "Последние алерты бота" in html
+    assert "Последние сигналы бота" in html
     assert "363 990 ₸" in html
     assert "2026-09-06 10:00" in html
 
@@ -280,4 +280,4 @@ def test_dashboard_without_alerts_skips_section(tmp_path) -> None:
         out = tmp_path / "site" / "index.html"
         render(conn, out)
 
-    assert "Последние алерты бота" not in out.read_text(encoding="utf-8")
+    assert "Последние сигналы бота" not in out.read_text(encoding="utf-8")

@@ -111,20 +111,37 @@ def _page_hrefs(html: str) -> list[str]:
 
 
 async def fetch(client) -> list[Offer]:
-    response = await client.get(CATALOG_URL)
-    response.raise_for_status()
+    """Каталог через Chromium.
+
+    С 2026-09-16 nginx e-katalog отвечает 403 любому HTTP-клиенту — и IP
+    раннера GitHub, и домашнему, с браузерным User-Agent тоже; настоящий
+    браузер получает страницу (проверено 2026-09-23: 200, 24 строки).
+    """
+    del client  # интерфейс единый с остальными магазинами
+    from playwright.async_api import async_playwright
 
     seen: set[str] = set()
-    offers = new_offers(parse(response.text), seen)
-
-    pages = min(total_pages(response.text), _MAX_PAGES)
-    for page in range(2, pages + 1):
-        await asyncio.sleep(_PAGE_DELAY)
+    offers: list[Offer] = []
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
         try:
-            extra = await client.get(f"{CATALOG_URL}{page}/")
-            extra.raise_for_status()
-        except Exception as exc:  # noqa: BLE001 — частичный результат лучше пустого
-            log.warning("e-katalog: страница %s не загрузилась: %s", page, exc)
-            break
-        offers.extend(new_offers(parse(extra.text), seen))
+            response = await page.goto(CATALOG_URL, wait_until="domcontentloaded", timeout=60_000)
+            if response is None or response.status >= 400:
+                raise RuntimeError(f"e-katalog: HTTP {response.status if response else '—'}")
+            await page.wait_for_selector("tr.model-short-row", timeout=30_000)
+            html = await page.content()
+            offers = new_offers(parse(html), seen)
+            pages = min(total_pages(html), _MAX_PAGES)
+            for number in range(2, pages + 1):
+                await asyncio.sleep(_PAGE_DELAY)
+                try:
+                    await page.goto(f"{CATALOG_URL}{number}/", wait_until="domcontentloaded", timeout=60_000)
+                    await page.wait_for_selector("tr.model-short-row", timeout=30_000)
+                except Exception as exc:  # noqa: BLE001 — частичный результат лучше пустого
+                    log.warning("e-katalog: страница %s не загрузилась: %s", number, exc)
+                    break
+                offers.extend(new_offers(parse(await page.content()), seen))
+        finally:
+            await browser.close()
     return offers
